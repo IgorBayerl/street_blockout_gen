@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Godot Track Editor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.163.0/examples/jsm/"
+            }
+        }
+    </script>
+    <script src="https://unpkg.com/split.js/dist/split.min.js"></script>
+    <style>
+        /* Basic Styling */
+        body { font-family: 'Inter', sans-serif; margin: 0; overflow: hidden; background-color: #f0f4f8; }
+        canvas { display: block; }
+        #editor-2d { background-color: #ffffff; cursor: crosshair; border: 1px solid #d1d5db; width: 100%; height: 100%; }
+        #preview-3d { background-color: #e5e7eb; border: 1px solid #d1d5db; position: relative; width: 100%; height: 100%;}
+        .panel { background-color: #ffffff; padding: 1rem; border-radius: 0.5rem; box-shadow: 0 2px 4px rgba(0,0,0,0.1); overflow: hidden; }
+        .tooltip-popup {
+            position: absolute; left: 100%; top: 0; background-color: rgba(0, 0, 0, 0.8);
+            color: white; padding: 10px 15px; border-radius: 6px; font-size: 13px;
+            white-space: normal; pointer-events: none; display: none; z-index: 100;
+            margin-left: 10px; width: 300px; box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        }
+        .tooltip-popup ul { list-style-position: inside; padding-left: 5px;}
+        .sidebar { width: 64px; flex-shrink: 0; }
+        .sidebar-btn {
+            display: flex; justify-content: center; align-items: center;
+            width: 40px; height: 40px; background-color: #4a5568;
+            color: white; border-radius: 0.375rem; transition: background-color 0.2s;
+            cursor: pointer; margin-bottom: 0.5rem;
+        }
+        .sidebar-btn:hover { background-color: #2d3748; }
+        .sidebar-btn.active-tool { background-color: #4299e1; }
+        .sidebar-btn.active-tool:hover { background-color: #2b6cb0; }
+        .sidebar-btn img { width: 20px; height: 20px; filter: invert(1); }
+        #status-message {
+            position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%);
+            background-color: rgba(0, 0, 0, 0.7); color: white; padding: 5px 15px;
+            border-radius: 5px; font-size: 14px; opacity: 0;
+            transition: opacity 0.5s ease-out; pointer-events: none; z-index: 1000;
+        }
+        #status-message.visible { opacity: 1; }
+        canvas:focus { outline: none; }
+
+        /* Floating Panels Styling */
+        .floating-panel {
+            position: absolute;
+            background-color: rgba(255, 255, 255, 0.85); backdrop-filter: blur(4px);
+            padding: 0.75rem; border-radius: 0.5rem; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            z-index: 10; display: none; min-width: 220px; border: 1px solid rgba(0,0,0,0.1);
+        }
+        #node-properties-container { top: 10px; left: 10px; }
+        #bg-settings-container { top: 10px; left: 10px; }
+        #projects-popup { top: 10px; left: calc(64px + 10px); max-height: calc(100vh - 20px); overflow-y: auto; }
+        .floating-panel label { display: block; margin-bottom: 0.25rem; font-size: 0.875rem; font-weight: 500; color: #4a5568; }
+        .floating-panel input[type=number], .floating-panel input[type=range], .floating-panel input[type=text] { margin-top: 0.25rem; }
+        .prop-input-group { margin-bottom: 0.5rem; }
+        .input-std { margin-top: 0.25rem; display: block; width: 100%; padding: 0.5rem; border: 1px solid #d1d5db; border-radius: 0.375rem; box-shadow: sm; outline: none; focus:ring-indigo-500 focus:border-indigo-500; font-size: 0.875rem; background-color: white; }
+        .button-std { display: inline-flex; items-center; padding: 0.25rem 0.75rem; background-color: #4a5568; color: white; border: none; border-radius: 0.375rem; font-size: 0.75rem; cursor: pointer; transition: background-color 0.2s; }
+        .button-std:hover { background-color: #2d3748; }
+        .button-sm { padding: 0.125rem 0.5rem; font-size: 0.7rem; margin-left: 0.25rem; }
+        .button-danger { background-color: #e53e3e; }
+        .button-danger:hover { background-color: #c53030; }
+        #project-list { max-height: 300px; overflow-y: auto; margin-top: 1rem; border: 1px solid #e5e7eb; padding: 0.5rem; border-radius: 0.25rem;}
+        #project-list li { display: flex; justify-content: space-between; align-items: center; padding: 0.25rem 0; border-bottom: 1px solid #e5e7eb; }
+        #project-list li:last-child { border-bottom: none; }
+        #project-list span { flex-grow: 1; margin-right: 0.5rem; font-size: 0.875rem; }
+
+        /* Horizontal Slider Styles */
+        .slider-control { margin-top: 0.5rem; }
+        .slider-control label { font-size: 12px; color: #4a5568; margin-bottom: 2px; }
+        .slider-control input[type=range] { width: 100%; height: 8px; cursor: pointer; appearance: none; -webkit-appearance: none; background: #cbd5e1; border-radius: 4px; outline: none; }
+        .slider-control input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 14px; height: 14px; background: #4a5568; border-radius: 50%; cursor: pointer; }
+        .slider-control input[type=range]::-moz-range-thumb { width: 14px; height: 14px; background: #4a5568; border-radius: 50%; cursor: pointer; border: none; }
+
+        /* Split.js Gutter Styling */
+        .gutter { background-color: #e2e8f0; background-repeat: no-repeat; background-position: 50%; }
+        .gutter.gutter-horizontal { background-image: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUAAAAeCAYAAADkftS9AAAAIklEQVQoU2M4c+bMfxAGAgYYmwGrIIiDjrELjpo5aiZeAAPRUQMYoAADANså3/pTztEAAAAAElFTkSuQmCC'); cursor: col-resize; }
+        .split { display: flex; flex-direction: row; }
+
+        /* Brush Cursor Style */
+        #brush-cursor {
+            /* *** UPDATED: Use fixed positioning *** */
+            position: fixed;
+            border: 1px solid rgba(0, 0, 0, 0.5);
+            background-color: rgba(100, 100, 100, 0.1);
+            border-radius: 50%;
+            pointer-events: none;
+            display: none;
+            z-index: 99;
+            transform: translate(-50%, -50%); /* Center on cursor */
+        }
+
+    </style>
+</head>
+<body class="flex h-screen">
+    <div class="sidebar bg-gray-700 p-2 flex flex-col items-center space-y-1 shadow-lg relative">
+        <button id="select-tool-btn" title="Select Tool (Escape)" class="sidebar-btn"> <img src="https://cdn.jsdelivr.net/npm/lucide-static@latest/icons/mouse-pointer-2.svg" alt="Select Tool"> </button>
+        <button id="brush-select-btn" title="Brush Select (B)" class="sidebar-btn"> <img src="https://cdn.jsdelivr.net/npm/lucide-static@latest/icons/circle-dot.svg" alt="Brush Select"> </button>
+        <button id="add-node-btn" title="Add Node (A)" class="sidebar-btn"> <img src="https://cdn.jsdelivr.net/npm/lucide-static@latest/icons/plus-circle.svg" alt="Add Node"> </button>
+        <button id="connect-nodes-btn" title="Connect Nodes (C)" class="sidebar-btn"> <img src="https://cdn.jsdelivr.net/npm/lucide-static@latest/icons/link.svg" alt="Connect Nodes"> </button>
+        <button id="delete-btn" title="Delete Selected (Del)" class="sidebar-btn"> <img src="https://cdn.jsdelivr.net/npm/lucide-static@latest/icons/trash-2.svg" alt="Delete"> </button>
+        <hr class="w-full border-gray-500 my-1">
+        <button id="focus-selection-btn" title="Focus Selection (F)" class="sidebar-btn"> <img src="https://cdn.jsdelivr.net/npm/lucide-static@latest/icons/focus.svg" alt="Focus Selection"> </button>
+        <hr class="w-full border-gray-500 my-1">
+        <button id="bg-settings-btn" title="Background Settings" class="sidebar-btn"> <img src="https://cdn.jsdelivr.net/npm/lucide-static@latest/icons/image.svg" alt="Background Settings"> </button>
+        <hr class="w-full border-gray-500 my-1">
+        <button id="generate-terrain-btn" title="Generate/Update Terrain (T)" class="sidebar-btn"> <img src="https://cdn.jsdelivr.net/npm/lucide-static@latest/icons/mountain.svg" alt="Generate Terrain"> </button>
+         <hr class="w-full border-gray-500 my-1">
+        <button id="projects-btn" title="Manage Projects" class="sidebar-btn"> <img src="https://cdn.jsdelivr.net/npm/lucide-static@latest/icons/folder-kanban.svg" alt="Manage Projects"> </button>
+        <button id="export-obj-btn" title="Export Track Mesh (E)" class="sidebar-btn"> <img src="https://cdn.jsdelivr.net/npm/lucide-static@latest/icons/download.svg" alt="Export OBJ"> </button>
+        <hr class="w-full border-gray-500 my-1">
+        <button id="info-btn" title="Show Instructions" class="sidebar-btn mt-auto"> <img src="https://cdn.jsdelivr.net/npm/lucide-static@latest/icons/info.svg" alt="Info"> </button>
+         <div id="instructions-popup" class="tooltip-popup"> <h3 class="font-semibold mb-1 text-base">Instructions & Shortcuts:</h3> <ul class="list-disc text-sm space-y-1"> <li>Select (Esc), Brush Select (B), Add Node (A), Connect Nodes (C), Delete (Del).</li> <li>Focus Selection (F).</li> <li>Select Mode: Shift+Click to toggle selection.</li> <li>Brush Mode: Drag to select, Shift+Drag to deselect.</li> <li>Brush Mode: Shift+Wheel to resize brush.</li> <li>Use Gizmo (W) in 3D to move selected node(s).</li> <li>Edit Height/Width for selected node(s).</li> <li>Generate/Update Terrain (T).</li> <li>Save/Load/Manage projects via Folder Icon panel.</li> <li>Export Track OBJ (E).</li> <li>Pan 2D/3D: Right Mouse Drag.</li> <li>Zoom 2D/3D: Mouse Wheel.</li> <li>Orbit 3D: Middle Mouse Drag.</li> <li>Gizmo: Translate (W), Space (Q), Size (+/-).</li> </ul> </div>
+         <input type="file" id="bg-file-input" accept="image/*" style="display: none;">
+         <input type="file" id="import-project-input" accept=".json,application/json" style="display: none;">
+    </div>
+
+    <div class="flex-1 flex overflow-hidden split">
+        <div id="split-left" class="flex flex-col h-full overflow-hidden p-4">
+            <div class="panel flex-1 relative h-full">
+                <div class="absolute top-3 left-3 z-10 bg-white/50 px-2 py-0.5 rounded text-sm font-medium text-gray-700" id="current-project-name">Untitled Project</div>
+                <h2 class="text-md font-semibold mb-2 opacity-0 pointer-events-none">2D Editor</h2>
+                <canvas id="editor-2d" tabindex="0"></canvas>
+                <div id="tooltip" class="tooltip"></div>
+                <div id="brush-cursor"></div>
+                <div id="node-properties-container" class="floating-panel">
+                     <h2 class="text-sm font-semibold mb-2 text-gray-700">Node Properties</h2>
+                     <div id="node-properties" class="text-sm text-gray-600 mb-2">Select node(s).</div>
+                     <div class="prop-input-group">
+                        <label for="node-height" class="block text-sm font-medium text-gray-700">Height (Y):</label>
+                        <input type="number" id="node-height" step="0.1" class="input-std" disabled>
+                     </div>
+                     <div class="prop-input-group">
+                        <label for="node-width" class="block text-sm font-medium text-gray-700">Width:</label>
+                        <input type="number" id="node-width" min="0.1" step="0.1" class="input-std" disabled>
+                     </div>
+                </div>
+                <div id="bg-settings-container" class="floating-panel">
+                     <h2 class="text-sm font-semibold mb-2 text-gray-700">Background Settings</h2>
+                     <div class="flex space-x-2 mb-3">
+                         <button id="load-bg-btn-panel" title="Load Background Image" class="button-std text-xs">Load</button>
+                         <button id="clear-bg-btn-panel" title="Clear Background Image" class="button-std text-xs">Clear</button>
+                     </div>
+                     <div class="slider-control mb-3">
+                        <label for="bg-opacity-slider">Opacity (<span id="bg-opacity-value">1.0</span>)</label>
+                        <input type="range" id="bg-opacity-slider" min="0" max="1" step="0.05" value="1">
+                     </div>
+                     <div class="mt-2">
+                        <label for="bg-scale-input">Scale:</label>
+                        <input type="number" id="bg-scale-input" min="0.05" max="10" step="0.05" value="1" class="input-std">
+                     </div>
+                </div>
+                 <div id="projects-popup" class="floating-panel">
+                    <h2 class="text-sm font-semibold mb-2 text-gray-700">Project Management</h2>
+                    <div class="mb-2">
+                        <label for="project-name-input">Project Name:</label>
+                        <input type="text" id="project-name-input" class="input-std" placeholder="Enter name...">
+                    </div>
+                    <div class="flex space-x-2 mb-3">
+                        <button id="save-as-btn" class="button-std text-xs">Save Current As</button>
+                        <button id="import-project-btn" class="button-std text-xs">Import Project</button>
+                    </div>
+                    <h3 class="text-xs font-medium text-gray-600 mt-2 mb-1">Saved Projects:</h3>
+                    <ul id="project-list" class="bg-gray-50 rounded">
+                       <li class="text-center text-gray-500 text-xs italic">No projects saved</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div id="split-right" class="flex flex-col h-full overflow-hidden p-4">
+            <div class="panel flex-1 relative h-full">
+                <h2 class="text-md font-semibold mb-2 absolute top-3 left-3 z-10 bg-white/50 px-2 rounded">3D Preview</h2>
+                <div id="preview-3d"></div>
+            </div>
+        </div>
+    </div>
+    <div id="status-message">Status Message</div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { TransformControls } from 'three/addons/controls/TransformControls.js';
+
+        // --- Constants ---
+        const NODE_RADIUS = 8; const CONTROL_POINT_RADIUS = 5; const DEFAULT_TRACK_WIDTH = 5; const TRACK_SEGMENTS = 30;
+        const GRID_SIZE = 10;
+        const NODE_MARKER_PREFIX = 'nodeMarker_'; const UP_VECTOR = new THREE.Vector3(0, 1, 0);
+        const PROJECTS_STORAGE_KEY = 'godotTrackEditor_Projects_v1';
+        const TERRAIN_SIZE = 400; const TERRAIN_SUBDIVISIONS = 100; const TERRAIN_INFLUENCE_RADIUS = 50; const TERRAIN_FALLOFF_POWER = 2; const TERRAIN_BASE_HEIGHT = -1; const GRID_DRAW_RANGE = TERRAIN_SIZE * 2;
+        const MIN_BRUSH_RADIUS = 5; const MAX_BRUSH_RADIUS = 100;
+        const FOCUS_ANIMATION_DURATION = 300;
+
+        // --- State Variables ---
+        let nodes = []; let segments = []; let selectedElements = []; let draggingElement = null;
+        let firstNodeToConnect = null;
+        let currentMode = 'select';
+        let currentProjectName = null;
+        let nextNodeId = 0; let nextSegmentId = 0; let roadCurvesCache = [];
+        let backgroundImage = null; let backgroundImageURL = null;
+        let backgroundImageOpacity = 1.0;
+        let backgroundImageScale = 1.0;
+        let isPanning = false; let lastPanX, lastPanY;
+        let isBrushSelecting = false; let lastMousePos = {x:0, y:0, screenX: 0, screenY: 0, clientX: 0, clientY: 0}; // Added clientX/Y
+        let brushSelectRadiusWorld = 15;
+        let justFinishedDraggingGizmo = false;
+        let isCameraAnimating = false; let cameraAnimationStartTime = 0; const cameraAnimationStartPos = new THREE.Vector3(); const cameraAnimationEndPos = new THREE.Vector3(); const cameraAnimationStartTarget = new THREE.Vector3(); const cameraAnimationEndTarget = new THREE.Vector3();
+
+
+        // --- 2D Canvas Setup ---
+        const canvas = document.getElementById('editor-2d'); const ctx = canvas.getContext('2d'); const tooltip = document.getElementById('tooltip'); let canvasWidth, canvasHeight;
+        let panX = 0; let panY = 0; let zoom = 1.0;
+        const brushCursorDiv = document.getElementById('brush-cursor');
+
+
+        // --- 3D Scene Setup ---
+        const previewContainer = document.getElementById('preview-3d'); let scene, camera, renderer, orbitControls, transformControls; let trackMeshGroup, nodeMarkersGroup, terrainMeshGroup; let raycaster = new THREE.Raycaster(); let pointer = new THREE.Vector2(); let multiSelectGizmoTarget; let initialNodePositionsMap = new Map(); let initialGizmoTargetPosition = new THREE.Vector3();
+
+        // --- UI Elements ---
+        const selectToolBtn = document.getElementById('select-tool-btn');
+        const brushSelectBtn = document.getElementById('brush-select-btn');
+        const addNodeBtn = document.getElementById('add-node-btn'); const connectNodesBtn = document.getElementById('connect-nodes-btn'); const deleteBtn = document.getElementById('delete-btn');
+        const focusSelectionBtn = document.getElementById('focus-selection-btn');
+        const generateTerrainBtn = document.getElementById('generate-terrain-btn');
+        const projectsBtn = document.getElementById('projects-btn');
+        const exportObjBtn = document.getElementById('export-obj-btn');
+        const nodePropertiesContainer = document.getElementById('node-properties-container'); const nodePropertiesDiv = document.getElementById('node-properties'); const nodeHeightInput = document.getElementById('node-height');
+        const nodeWidthInput = document.getElementById('node-width');
+        const statusMessageDiv = document.getElementById('status-message'); const infoBtn = document.getElementById('info-btn'); const instructionsPopup = document.getElementById('instructions-popup');
+        const bgSettingsBtn = document.getElementById('bg-settings-btn');
+        const bgSettingsContainer = document.getElementById('bg-settings-container');
+        const loadBgBtnPanel = document.getElementById('load-bg-btn-panel');
+        const clearBgBtnPanel = document.getElementById('clear-bg-btn-panel');
+        const bgFileInput = document.getElementById('bg-file-input');
+        const bgOpacitySlider = document.getElementById('bg-opacity-slider');
+        const bgOpacityValueSpan = document.getElementById('bg-opacity-value');
+        const bgScaleInput = document.getElementById('bg-scale-input');
+        const projectsPopup = document.getElementById('projects-popup');
+        const projectNameInput = document.getElementById('project-name-input');
+        const saveAsBtn = document.getElementById('save-as-btn');
+        const importProjectBtn = document.getElementById('import-project-btn');
+        const importProjectInput = document.getElementById('import-project-input');
+        const projectListUl = document.getElementById('project-list');
+        const currentProjectNameDiv = document.getElementById('current-project-name');
+
+
+        // --- Initialization ---
+        function init() { init3D(); initSplitView(); resizeCanvas(); setupEventListeners(); setActiveTool('select'); updateCurrentProjectNameDisplay(); draw2D(); update3DTrack(); console.log("Track Editor Initialized"); }
+        function initSplitView() { Split(['#split-left', '#split-right'], { sizes: [65, 35], minSize: [400, 300], gutterSize: 8, cursor: 'col-resize', onDragEnd: () => { resizeCanvas(); } }); }
+        function resizeCanvas() { const editorPanel = canvas.parentElement; if (!editorPanel) return; const style = window.getComputedStyle(editorPanel); const paddingX = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight); const paddingY = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom); const borderX = parseFloat(style.borderLeftWidth) + parseFloat(style.borderRightWidth); const borderY = parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth); canvasWidth = editorPanel.clientWidth - paddingX - borderX; canvasHeight = editorPanel.clientHeight - paddingY - borderY; canvas.width = Math.max(10, canvasWidth); canvas.height = Math.max(10, canvasHeight); if (panX === 0 && panY === 0 && canvasWidth > 0 && canvasHeight > 0) { panX = canvasWidth / 2; panY = canvasHeight / 2; } draw2D(); }
+
+        function init3D() {
+            scene = new THREE.Scene(); scene.background = new THREE.Color(0xd0e0f0);
+            const initialWidth = previewContainer.clientWidth || 300; const initialHeight = previewContainer.clientHeight || 400;
+            camera = new THREE.PerspectiveCamera(60, initialWidth / initialHeight, 0.1, 3000); camera.position.set(0, 80, 120); camera.lookAt(0, 0, 0);
+            renderer = new THREE.WebGLRenderer({ antialias: true }); renderer.setSize(initialWidth, initialHeight); renderer.setPixelRatio(window.devicePixelRatio); renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap; previewContainer.appendChild(renderer.domElement);
+            renderer.domElement.addEventListener('contextmenu', (event) => event.preventDefault());
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6); scene.add(ambientLight);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8); directionalLight.position.set(100, 150, 100); directionalLight.castShadow = true; directionalLight.shadow.mapSize.width = 2048; directionalLight.shadow.mapSize.height = 2048; directionalLight.shadow.camera.near = 0.5; directionalLight.shadow.camera.far = 500; directionalLight.shadow.camera.left = -150; directionalLight.shadow.camera.right = 150; directionalLight.shadow.camera.top = 150; directionalLight.shadow.camera.bottom = -150; scene.add(directionalLight);
+            orbitControls = new OrbitControls(camera, renderer.domElement); orbitControls.enableDamping = true; orbitControls.dampingFactor = 0.1; orbitControls.screenSpacePanning = true; orbitControls.mouseButtons = { LEFT: null, MIDDLE: THREE.MOUSE.ROTATE, RIGHT: THREE.MOUSE.PAN }; orbitControls.touches = { ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_ROTATE };
+            const gridHelper = new THREE.GridHelper(GRID_DRAW_RANGE, GRID_DRAW_RANGE / GRID_SIZE); gridHelper.name = "GridHelper"; scene.add(gridHelper);
+            trackMeshGroup = new THREE.Group(); scene.add(trackMeshGroup); nodeMarkersGroup = new THREE.Group(); scene.add(nodeMarkersGroup); terrainMeshGroup = new THREE.Group(); scene.add(terrainMeshGroup);
+            multiSelectGizmoTarget = new THREE.Object3D(); multiSelectGizmoTarget.name = "MultiSelectGizmoTarget"; scene.add(multiSelectGizmoTarget);
+            transformControls = new TransformControls(camera, renderer.domElement);
+            transformControls.addEventListener('dragging-changed', (event) => { orbitControls.enabled = !event.value; if (event.value) { isCameraAnimating = false; if (transformControls.object === multiSelectGizmoTarget) { initialNodePositionsMap.clear(); selectedElements.filter(el => el.type === 'node').forEach(selNode => { const node = nodes.find(n => n.id === selNode.id); if(node) { initialNodePositionsMap.set(node.id, { x: node.x, y: node.y, z: node.z }); } }); initialGizmoTargetPosition.copy(multiSelectGizmoTarget.position); } } else { initialNodePositionsMap.clear(); justFinishedDraggingGizmo = true; setTimeout(() => { justFinishedDraggingGizmo = false; }, 50); } });
+            transformControls.addEventListener('objectChange', () => { if (!transformControls.object) return; if (transformControls.object.userData.nodeId !== undefined) { const movedNodeId = transformControls.object.userData.nodeId; const node = nodes.find(n => n.id === movedNodeId); if (node) { node.x = transformControls.object.position.x; node.z = transformControls.object.position.y; node.y = transformControls.object.position.z; updateNodePropertiesUI(); updateConnectedControlPoints(node.id); draw2D(); update3DTrackGeometry(); } } else if (transformControls.object === multiSelectGizmoTarget) { const currentGizmoPos = multiSelectGizmoTarget.position; const delta = currentGizmoPos.clone().sub(initialGizmoTargetPosition); let needsGeomUpdate = false; selectedElements.filter(el => el.type === 'node').forEach(selNode => { const node = nodes.find(n => n.id === selNode.id); const initialPos = initialNodePositionsMap.get(node.id); if (node && initialPos) { node.x = initialPos.x + delta.x; node.z = initialPos.z + delta.y; node.y = initialPos.y + delta.z; const marker = nodeMarkersGroup.children.find(m => m.userData.nodeId === node.id); if (marker) { marker.position.set(node.x, node.z, node.y); } updateConnectedControlPoints(node.id); needsGeomUpdate = true; } }); if (needsGeomUpdate) { updateNodePropertiesUI(); draw2D(); update3DTrackGeometry(); } } });
+            transformControls.setSize(0.8); scene.add(transformControls);
+            new ResizeObserver(() => { if (!renderer || !camera) return; const width = previewContainer.clientWidth; const height = previewContainer.clientHeight; if (width > 0 && height > 0) { renderer.setSize(width, height); camera.aspect = width / height; camera.updateProjectionMatrix(); } }).observe(previewContainer);
+            renderer.domElement.addEventListener('click', onPreviewClick);
+            animate3D();
+        }
+
+        function animate3D() {
+            requestAnimationFrame(animate3D);
+            if (isCameraAnimating) { const elapsed = performance.now() - cameraAnimationStartTime; const t = Math.min(elapsed / FOCUS_ANIMATION_DURATION, 1.0); const easedT = 1 - Math.pow(1 - t, 3); camera.position.lerpVectors(cameraAnimationStartPos, cameraAnimationEndPos, easedT); orbitControls.target.lerpVectors(cameraAnimationStartTarget, cameraAnimationEndTarget, easedT); if (t >= 1.0) { isCameraAnimating = false; orbitControls.enabled = true; } }
+             if (!isCameraAnimating) { orbitControls.update(); }
+            renderer.render(scene, camera);
+        }
+
+        // --- 2D Drawing Functions ---
+        function drawGrid() { ctx.save(); const maxCoord = GRID_DRAW_RANGE / 2; const minCoord = -maxCoord; ctx.strokeStyle = '#e0e0e0'; ctx.lineWidth = 0.5 / zoom; ctx.beginPath(); for (let x = minCoord; x <= maxCoord; x += GRID_SIZE) { if (x === 0) continue; ctx.moveTo(x, minCoord); ctx.lineTo(x, maxCoord); } for (let y = minCoord; y <= maxCoord; y += GRID_SIZE) { if (y === 0) continue; ctx.moveTo(minCoord, y); ctx.lineTo(maxCoord, y); } ctx.stroke(); ctx.lineWidth = 1.5 / zoom; ctx.strokeStyle = '#a0a0a0'; ctx.beginPath(); const originScreenX = 0 * zoom + panX; if (originScreenX >= -ctx.lineWidth && originScreenX <= canvasWidth + ctx.lineWidth) { ctx.moveTo(0, minCoord); ctx.lineTo(0, maxCoord); } const originScreenY = 0 * zoom + panY; if (originScreenY >= -ctx.lineWidth && originScreenY <= canvasHeight + ctx.lineWidth) { ctx.moveTo(minCoord, 0); ctx.lineTo(maxCoord, 0); } ctx.stroke(); ctx.restore(); }
+
+        function draw2D() {
+            ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+            ctx.save();
+            ctx.translate(panX, panY);
+            ctx.scale(zoom, zoom);
+
+            // Draw Background Image
+            if (backgroundImage) { ctx.save(); ctx.globalAlpha = backgroundImageOpacity; try { const scaledWidth = backgroundImage.width * backgroundImageScale; const scaledHeight = backgroundImage.height * backgroundImageScale; const imgX = -scaledWidth / 2; const imgY = -scaledHeight / 2; ctx.drawImage(backgroundImage, imgX, imgY, scaledWidth, scaledHeight); } catch (e) { console.error("Error drawing background image:", e); } ctx.restore(); }
+
+            drawGrid(); // Draw grid
+
+            const isSelected = (type, id, pointType = null) => selectedElements.some(el => el.type === type && el.id === id && (type !== 'controlPoint' || el.pointType === pointType));
+            // Draw Segments, Control Points, Nodes...
+            segments.forEach(seg => { const startNode = nodes.find(n => n.id === seg.startNodeId); const endNode = nodes.find(n => n.id === seg.endNodeId); if (!startNode || !endNode) return; ctx.beginPath(); ctx.moveTo(startNode.x, startNode.y); ctx.bezierCurveTo(seg.cp1x, seg.cp1y, seg.cp2x, seg.cp2y, endNode.x, endNode.y); ctx.strokeStyle = isSelected('segment', seg.id) ? '#f59e0b' : '#60a5fa'; ctx.lineWidth = 3 / zoom; ctx.stroke(); if (isSelected('segment', seg.id) || isSelected('controlPoint', seg.id, 'cp1') || isSelected('controlPoint', seg.id, 'cp2')) { ctx.beginPath(); ctx.moveTo(startNode.x, startNode.y); ctx.lineTo(seg.cp1x, seg.cp1y); ctx.moveTo(endNode.x, endNode.y); ctx.lineTo(seg.cp2x, seg.cp2y); ctx.strokeStyle = '#a0aec0'; ctx.lineWidth = 1 / zoom; ctx.setLineDash([3 / zoom, 3 / zoom]); ctx.stroke(); ctx.setLineDash([]); } });
+            segments.forEach(seg => { if (isSelected('segment', seg.id) || isSelected('controlPoint', seg.id, 'cp1') || isSelected('controlPoint', seg.id, 'cp2')) { drawControlPoint(seg.cp1x, seg.cp1y, seg.id, 'cp1'); drawControlPoint(seg.cp2x, seg.cp2y, seg.id, 'cp2'); } });
+            nodes.forEach(node => { ctx.beginPath(); const radius = NODE_RADIUS / zoom; ctx.arc(node.x, node.y, radius, 0, Math.PI * 2); ctx.fillStyle = isSelected('node', node.id) ? '#ef4444' : '#3b82f6'; if (currentMode === 'connectNodes' && firstNodeToConnect === node.id) { ctx.fillStyle = '#10b981'; } ctx.fill(); ctx.strokeStyle = '#1e3a8a'; ctx.lineWidth = 1 / zoom; ctx.stroke(); });
+
+            ctx.restore(); // Restore context state (removes transform)
+
+            // --- Draw Screen-Space Elements (AFTER restore) ---
+
+            // Draw Brush Cursor
+            if (currentMode === 'brushSelect' && lastMousePos.clientX !== undefined) { // Use clientX for positioning
+                const brushRadiusScreen = brushSelectRadiusWorld * zoom;
+                // Position using clientX/Y relative to viewport for fixed positioning
+                brushCursorDiv.style.left = `${lastMousePos.clientX}px`;
+                brushCursorDiv.style.top = `${lastMousePos.clientY}px`;
+                brushCursorDiv.style.width = `${brushRadiusScreen * 2}px`;
+                brushCursorDiv.style.height = `${brushRadiusScreen * 2}px`;
+                brushCursorDiv.style.display = 'block';
+            } else {
+                brushCursorDiv.style.display = 'none';
+            }
+        }
+
+        function drawControlPoint(x, y, segmentId, pointType) { const radius = CONTROL_POINT_RADIUS / zoom; ctx.beginPath(); ctx.arc(x, y, radius, 0, Math.PI * 2); const isCpSelected = selectedElements.some(el => el.type === 'controlPoint' && el.id === segmentId && el.pointType === pointType); ctx.fillStyle = isCpSelected ? '#f59e0b' : '#cbd5e1'; ctx.fill(); ctx.strokeStyle = '#4a5568'; ctx.lineWidth = 0.5 / zoom; ctx.stroke(); }
+
+        // --- Interaction Functions ---
+         function getMousePos(evt, targetCanvas = canvas) {
+             const rect = targetCanvas.getBoundingClientRect();
+             // Use offsetX/offsetY - relative to padding edge
+             const screenX = evt.offsetX;
+             const screenY = evt.offsetY;
+
+             if (targetCanvas === canvas) {
+                 const worldX = (screenX - panX) / zoom;
+                 const worldY = (screenY - panY) / zoom;
+                 // Also return clientX/Y for fixed positioning needs
+                 return { x: worldX, y: worldY, screenX, screenY, clientX: evt.clientX, clientY: evt.clientY };
+             } else {
+                  // For 3D view, only screenX/Y relative to its own rect are needed for raycasting
+                  return { screenX, screenY, clientX: evt.clientX, clientY: evt.clientY };
+             }
+         }
+
+        function findElementAt(worldX, worldY) { const clickRadiusNodeSq = Math.pow(NODE_RADIUS / zoom + 2 / zoom, 2); const clickRadiusCPSq = Math.pow(CONTROL_POINT_RADIUS / zoom + 2 / zoom, 2); const isCpSelected = (id, pt) => selectedElements.some(el => el.type === 'controlPoint' && el.id === id && el.pointType === pt); const isSegSelected = (id) => selectedElements.some(el => el.type === 'segment' && el.id === id); for (const seg of segments) { if (isSegSelected(seg.id) || isCpSelected(seg.id, 'cp1') || isCpSelected(seg.id, 'cp2')) { const cp1DistSq = Math.pow(worldX - seg.cp1x, 2) + Math.pow(worldY - seg.cp1y, 2); if (cp1DistSq <= clickRadiusCPSq) { return { type: 'controlPoint', id: seg.id, pointType: 'cp1' }; } const cp2DistSq = Math.pow(worldX - seg.cp2x, 2) + Math.pow(worldY - seg.cp2y, 2); if (cp2DistSq <= clickRadiusCPSq) { return { type: 'controlPoint', id: seg.id, pointType: 'cp2' }; } } } for (let i = nodes.length - 1; i >= 0; i--) { const node = nodes[i]; const nodeDistSq = Math.pow(worldX - node.x, 2) + Math.pow(worldY - node.y, 2); if (nodeDistSq <= clickRadiusNodeSq) { return { type: 'node', id: node.id }; } } for (const seg of segments) { const startNode = nodes.find(n => n.id === seg.startNodeId); const endNode = nodes.find(n => n.id === seg.endNodeId); if (!startNode || !endNode) continue; const minX = Math.min(startNode.x, endNode.x, seg.cp1x, seg.cp2x); const maxX = Math.max(startNode.x, endNode.x, seg.cp1x, seg.cp2x); const minY = Math.min(startNode.y, endNode.y, seg.cp1y, seg.cp2y); const maxY = Math.max(startNode.y, endNode.y, seg.cp1y, seg.cp2y); const tolerance = 10 / zoom; if (worldX >= minX - tolerance && worldX <= maxX + tolerance && worldY >= minY - tolerance && worldY <= maxY + tolerance) { return { type: 'segment', id: seg.id }; } } return null; }
+        function handleMouseDown(evt) { const pos = getMousePos(evt); if (evt.button === 2) { isPanning = true; lastPanX = pos.screenX; lastPanY = pos.screenY; canvas.style.cursor = 'grabbing'; evt.preventDefault(); return; } if (evt.button === 1) { return; } if (evt.button !== 0) return; if (currentMode === 'addNode') { addNode(pos.x, pos.y); return; } if (currentMode === 'connectNodes') { const clickedNode = findElementAt(pos.x, pos.y); if (clickedNode?.type === 'node') handleNodeConnection(clickedNode.id); else setActiveTool('select'); return; } if (currentMode === 'brushSelect') { isBrushSelecting = true; selectNodesInBrush(pos.x, pos.y, evt.shiftKey, true); lastMousePos = pos; draw2D(); return; } const clickedElement = findElementAt(pos.x, pos.y); if (clickedElement) { const index = selectedElements.findIndex(el => el.type === clickedElement.type && el.id === clickedElement.id && el.pointType === clickedElement.pointType); if (evt.shiftKey) { if (index > -1) { selectedElements.splice(index, 1); } else { if (clickedElement.type === 'node') { selectedElements.push(clickedElement); } else { selectedElements = [clickedElement]; } } } else { if (index === -1 || selectedElements.length > 1) { selectedElements = [clickedElement]; } } draggingElement = { ...clickedElement, startX: pos.x, startY: pos.y }; if (clickedElement.type === 'node') { const node = nodes.find(n => n.id === clickedElement.id); draggingElement.initialX = node.x; draggingElement.initialY = node.y; } else if (clickedElement.type === 'controlPoint') { const segment = segments.find(s => s.id === clickedElement.id); if (clickedElement.pointType === 'cp1') { draggingElement.initialX = segment.cp1x; draggingElement.initialY = segment.cp1y; } else { draggingElement.initialX = segment.cp2x; draggingElement.initialY = segment.cp2y; } } canvas.style.cursor = 'grabbing'; } else { selectedElements = []; canvas.style.cursor = 'crosshair'; } updateSelectionVisuals(); }
+        function handleMouseMove(evt) { const pos = getMousePos(evt); lastMousePos = pos; const hoveredElement = findElementAt(pos.x, pos.y); if (hoveredElement && !draggingElement && !isPanning && !transformControls.dragging && !isBrushSelecting) { let tooltipText = ''; if (hoveredElement.type === 'node') { const node = nodes.find(n => n.id === hoveredElement.id); tooltipText = `Node ${node.id} (X:${node.x.toFixed(1)}, Y:${node.y.toFixed(1)}, H:${node.z.toFixed(1)})`; } else if (hoveredElement.type === 'segment') { tooltipText = `Segment ${hoveredElement.id}`; } else if (hoveredElement.type === 'controlPoint') { tooltipText = `Control Point (${hoveredElement.pointType.toUpperCase()}) for Segment ${hoveredElement.id}`; } tooltip.style.left = `${pos.screenX + 10}px`; tooltip.style.top = `${pos.screenY + 10}px`; tooltip.textContent = tooltipText; tooltip.style.display = 'block'; } else { tooltip.style.display = 'none'; } if (isPanning) { const dx = pos.screenX - lastPanX; const dy = pos.screenY - lastPanY; panX += dx; panY += dy; lastPanX = pos.screenX; lastPanY = pos.screenY; draw2D(); return; } if (isBrushSelecting) { selectNodesInBrush(pos.x, pos.y, evt.shiftKey, false); draw2D(); return; } if (draggingElement) { const dx = pos.x - draggingElement.startX; const dy = pos.y - draggingElement.startY; if (draggingElement.type === 'node') { const node = nodes.find(n => n.id === draggingElement.id); if (node) { node.x = draggingElement.initialX + dx; node.y = draggingElement.initialY + dy; updateConnectedControlPoints(node.id); update3DTrack(); updateNodePropertiesUI(); } } else if (draggingElement.type === 'controlPoint') { const segment = segments.find(s => s.id === draggingElement.id); if (segment) { if (draggingElement.pointType === 'cp1') { segment.cp1x = draggingElement.initialX + dx; segment.cp1y = draggingElement.initialY + dy; } else { segment.cp2x = draggingElement.initialX + dx; segment.cp2y = draggingElement.initialY + dy; } update3DTrackGeometry(); } } draw2D(); } else { draw2D(); } }
+        function handleMouseUp(evt) { if (evt.button === 2 || evt.button === 1) { isPanning = false; const pos = getMousePos(evt); canvas.style.cursor = currentMode === 'addNode' ? 'copy' : (currentMode === 'connectNodes' ? 'cell' : (currentMode === 'brushSelect' ? 'none' : (findElementAt(pos.x, pos.y) ? 'pointer' : 'crosshair'))); } if (isBrushSelecting) { isBrushSelecting = false; lastMousePos = {}; updateSelectionVisuals(); } if (evt.button !== 0) return; if (draggingElement) { const pos = getMousePos(evt); canvas.style.cursor = currentMode === 'addNode' ? 'copy' : (currentMode === 'connectNodes' ? 'cell' : (currentMode === 'brushSelect' ? 'none' : (findElementAt(pos.x, pos.y) ? 'pointer' : 'crosshair'))); } draggingElement = null; }
+        function handleWheel(evt) { if (currentMode === 'brushSelect' && evt.shiftKey) { evt.preventDefault(); const delta = evt.deltaY > 0 ? -1 : 1; const changeAmount = 2; brushSelectRadiusWorld += delta * changeAmount; brushSelectRadiusWorld = Math.max(MIN_BRUSH_RADIUS, Math.min(brushSelectRadiusWorld, MAX_BRUSH_RADIUS)); console.log("Brush Radius:", brushSelectRadiusWorld); draw2D(); return; } evt.preventDefault(); const pos = getMousePos(evt); const zoomFactor = 1.1; const deltaZoom = evt.deltaY > 0 ? 1 / zoomFactor : zoomFactor; const newZoom = Math.max(0.1, Math.min(zoom * deltaZoom, 10)); const worldXBefore = (pos.screenX - panX) / zoom; const worldYBefore = (pos.screenY - panY) / zoom; zoom = newZoom; panX = pos.screenX - worldXBefore * zoom; panY = pos.screenY - worldYBefore * zoom; draw2D(); }
+        function onPreviewClick(event) { if (justFinishedDraggingGizmo) { justFinishedDraggingGizmo = false; return; } if (transformControls.dragging) return; const pos = getMousePos(event, renderer.domElement); pointer.x = (pos.screenX / previewContainer.clientWidth) * 2 - 1; pointer.y = -(pos.screenY / previewContainer.clientHeight) * 2 + 1; raycaster.setFromCamera(pointer, camera); const intersects = raycaster.intersectObjects(nodeMarkersGroup.children); if (intersects.length > 0) { const clickedNodeId = intersects[0].object.userData.nodeId; if (clickedNodeId !== undefined) { const clickedElement = { type: 'node', id: clickedNodeId }; const index = selectedElements.findIndex(el => el.type === 'node' && el.id === clickedNodeId); if (event.shiftKey) { if (index > -1) { selectedElements.splice(index, 1); } else { selectedElements.push(clickedElement); } } else { selectedElements = [clickedElement]; } } else { if (!event.shiftKey) selectedElements = []; } } else { if (!event.shiftKey) selectedElements = []; } setActiveTool('select'); updateSelectionVisuals(); }
+        function handleKeyDown(evt) { if (evt.target === nodeHeightInput || evt.target === nodeWidthInput || evt.target === bgOpacitySlider || evt.target === bgScaleInput || evt.target === projectNameInput) return; switch (evt.key.toUpperCase()) { case 'A': setActiveTool(currentMode === 'addNode' ? 'select' : 'addNode'); break; case 'C': setActiveTool(currentMode === 'connectNodes' ? 'select' : 'connectNodes'); break; case 'B': setActiveTool(currentMode === 'brushSelect' ? 'select' : 'brushSelect'); break; case 'DELETE': case 'BACKSPACE': deleteSelected(); setActiveTool('select'); break; case 'T': generateTerrain(); setActiveTool('select'); break; case 'E': if (!transformControls.dragging) exportToOBJ(); setActiveTool('select'); break; case 'F': focusOnSelection(); setActiveTool('select'); break; case 'ESCAPE': selectedElements = []; setActiveTool('select'); break; case 'W': transformControls.setMode("translate"); break; case 'Q': transformControls.setSpace(transformControls.space === "local" ? "world" : "local"); break; case '+': transformControls.setSize(transformControls.size + 0.1); break; case '-': transformControls.setSize(Math.max(transformControls.size - 0.1, 0.1)); break; } }
+
+        function setupEventListeners() {
+            canvas.addEventListener('mousedown', handleMouseDown); canvas.addEventListener('mousemove', handleMouseMove); canvas.addEventListener('mouseup', handleMouseUp);
+            canvas.addEventListener('mouseleave', () => { isPanning = false; tooltip.style.display = 'none'; isBrushSelecting = false; lastMousePos={}; if (!draggingElement) canvas.style.cursor = currentMode === 'addNode' ? 'copy' : (currentMode === 'connectNodes' ? 'cell' : (currentMode === 'brushSelect' ? 'none' : 'crosshair')); draw2D(); });
+            canvas.addEventListener('wheel', handleWheel, { passive: false });
+            canvas.addEventListener('contextmenu', (event) => event.preventDefault());
+            window.addEventListener('resize', () => { resizeCanvas(); }); window.addEventListener('keydown', handleKeyDown);
+            // Tool Buttons
+            selectToolBtn.addEventListener('click', () => setActiveTool('select'));
+            brushSelectBtn.addEventListener('click', () => setActiveTool(currentMode === 'brushSelect' ? 'select' : 'brushSelect'));
+            addNodeBtn.addEventListener('click', () => setActiveTool(currentMode === 'addNode' ? 'select' : 'addNode'));
+            connectNodesBtn.addEventListener('click', () => setActiveTool(currentMode === 'connectNodes' ? 'select' : 'connectNodes'));
+            deleteBtn.addEventListener('click', () => { deleteSelected(); setActiveTool('select'); });
+            focusSelectionBtn.addEventListener('click', () => { focusOnSelection(); setActiveTool('select'); });
+            generateTerrainBtn.addEventListener('click', () => { generateTerrain(); setActiveTool('select'); });
+            exportObjBtn.addEventListener('click', () => { exportToOBJ(); setActiveTool('select'); });
+            // Settings/Info Buttons
+            nodeHeightInput.addEventListener('change', updateSelectedNodeHeight);
+            nodeWidthInput.addEventListener('change', updateSelectedNodeWidth);
+            infoBtn.addEventListener('mouseenter', () => { instructionsPopup.style.display = 'block'; }); infoBtn.addEventListener('mouseleave', () => { instructionsPopup.style.display = 'none'; });
+            bgSettingsBtn.addEventListener('click', () => { const isOpening = bgSettingsContainer.style.display !== 'block'; if (isOpening) { setActiveTool('select'); bgSettingsContainer.style.display = 'block'; bgSettingsBtn.classList.add('active-tool'); nodePropertiesContainer.style.display = 'none'; projectsPopup.style.display = 'none'; } else { bgSettingsContainer.style.display = 'none'; bgSettingsBtn.classList.remove('active-tool'); } });
+             // Projects Button Listener
+            projectsBtn.addEventListener('click', () => { const isOpening = projectsPopup.style.display !== 'block'; if (isOpening) { setActiveTool('select'); loadProjectsList(); projectsPopup.style.display = 'block'; projectsBtn.classList.add('active-tool'); nodePropertiesContainer.style.display = 'none'; bgSettingsContainer.style.display = 'none'; bgSettingsBtn.classList.remove('active-tool');} else { projectsPopup.style.display = 'none'; projectsBtn.classList.remove('active-tool'); } });
+            // Background Panel Controls
+            loadBgBtnPanel.addEventListener('click', () => { bgFileInput.click(); });
+            clearBgBtnPanel.addEventListener('click', clearBackgroundImage);
+            bgFileInput.addEventListener('change', handleBackgroundImageLoad);
+            bgOpacitySlider.addEventListener('input', (event) => { backgroundImageOpacity = parseFloat(event.target.value); bgOpacityValueSpan.textContent = backgroundImageOpacity.toFixed(2); draw2D(); });
+            bgScaleInput.addEventListener('input', (event) => { const newScale = parseFloat(event.target.value); if (!isNaN(newScale)) { backgroundImageScale = newScale; draw2D(); } });
+            bgScaleInput.addEventListener('change', (event) => { const newScale = parseFloat(event.target.value); if (isNaN(newScale) || newScale < parseFloat(bgScaleInput.min) || newScale > parseFloat(bgScaleInput.max)) { event.target.value = backgroundImageScale; } else { backgroundImageScale = newScale; draw2D(); } });
+             // Project Popup Controls
+            saveAsBtn.addEventListener('click', handleSaveAs);
+            importProjectBtn.addEventListener('click', () => importProjectInput.click());
+            importProjectInput.addEventListener('change', handleImportProject);
+        }
+
+        // --- Core Logic Functions ---
+
+        function setActiveTool(newMode) { if (currentMode === newMode && (newMode !== 'addNode' && newMode !== 'connectNodes' && newMode !== 'brushSelect')) return; if (currentMode === newMode && (newMode === 'addNode' || newMode === 'connectNodes' || newMode === 'brushSelect')) { newMode = 'select'; } console.log("Setting active tool:", newMode); currentMode = newMode; selectToolBtn.classList.remove('active-tool'); addNodeBtn.classList.remove('active-tool'); connectNodesBtn.classList.remove('active-tool'); brushSelectBtn.classList.remove('active-tool'); firstNodeToConnect = null; isBrushSelecting = false; lastMousePos = {}; if (newMode !== 'bgSettings' && newMode !== 'projects') { bgSettingsContainer.style.display = 'none'; bgSettingsBtn.classList.remove('active-tool'); projectsPopup.style.display = 'none'; projectsBtn.classList.remove('active-tool');} switch (currentMode) { case 'select': selectToolBtn.classList.add('active-tool'); canvas.style.cursor = 'crosshair'; break; case 'addNode': addNodeBtn.classList.add('active-tool'); canvas.style.cursor = 'copy'; selectedElements = []; updateSelectionVisuals(); break; case 'connectNodes': connectNodesBtn.classList.add('active-tool'); canvas.style.cursor = 'cell'; selectedElements = []; updateSelectionVisuals(); break; case 'brushSelect': brushSelectBtn.classList.add('active-tool'); canvas.style.cursor = 'none'; selectedElements = []; updateSelectionVisuals(); break; } draw2D(); }
+        function addNode(x, y, z = 0) { const newNode = { id: nextNodeId++, x, y, z, width: DEFAULT_TRACK_WIDTH }; nodes.push(newNode); update3DTrack(); draw2D(); }
+        function handleNodeConnection(nodeId) { if (!firstNodeToConnect) { firstNodeToConnect = nodeId; draw2D(); } else if (firstNodeToConnect !== nodeId) { const exists = segments.some(seg => (seg.startNodeId === firstNodeToConnect && seg.endNodeId === nodeId) || (seg.startNodeId === nodeId && seg.endNodeId === firstNodeToConnect)); if (!exists) addSegment(firstNodeToConnect, nodeId); else console.warn("Segment already exists"); firstNodeToConnect = null; draw2D(); } }
+        function addSegment(startNodeId, endNodeId) { const startNode = nodes.find(n => n.id === startNodeId); const endNode = nodes.find(n => n.id === endNodeId); if (!startNode || !endNode) return; const dx = endNode.x - startNode.x; const dy = endNode.y - startNode.y; const cp1x = startNode.x + dx / 3; const cp1y = startNode.y + dy / 3; const cp2x = startNode.x + 2 * dx / 3; const cp2y = startNode.y + 2 * dy / 3; const newSegment = { id: nextSegmentId++, startNodeId, endNodeId, cp1x, cp1y, cp2x, cp2y }; segments.push(newSegment); update3DTrackGeometry(); }
+        function updateConnectedControlPoints(nodeId) { const node = nodes.find(n => n.id === nodeId); if (!node) return; segments.forEach(seg => { let otherNode = null; let cpToUpdate = null; if (seg.startNodeId === nodeId) { otherNode = nodes.find(n => n.id === seg.endNodeId); cpToUpdate = 'cp1'; } else if (seg.endNodeId === nodeId) { otherNode = nodes.find(n => n.id === seg.startNodeId); cpToUpdate = 'cp2'; } if (otherNode && cpToUpdate) { const dx = otherNode.x - node.x; const dy = otherNode.y - node.y; const defaultCP1X = node.x + dx / 3; const defaultCP1Y = node.y + dy / 3; const defaultCP2X = node.x + 2 * dx / 3; const defaultCP2Y = node.y + 2 * dy / 3; if (cpToUpdate === 'cp1') { seg.cp1x = defaultCP1X; seg.cp1y = defaultCP1Y; } else { seg.cp2x = defaultCP2X; seg.cp2y = defaultCP2Y; } } }); }
+        function deleteSelected() { if (selectedElements.length === 0) return; const nodesToDelete = new Set(); const segmentsToDelete = new Set(); selectedElements.forEach(el => { if (el.type === 'node') { nodesToDelete.add(el.id); } else if (el.type === 'segment') { segmentsToDelete.add(el.id); } else if (el.type === 'controlPoint') { segmentsToDelete.add(el.id); } }); if (nodesToDelete.size > 0) { nodes = nodes.filter(n => !nodesToDelete.has(n.id)); segments = segments.filter(seg => !nodesToDelete.has(seg.startNodeId) && !nodesToDelete.has(seg.endNodeId)); } if (segmentsToDelete.size > 0) { segments = segments.filter(seg => !segmentsToDelete.has(seg.id)); } selectedElements = []; updateSelectionVisuals(); update3DTrack(); clearTerrain(); }
+        function updateSelectionVisuals() { updateNodePropertiesUI(); const selectedNodes = selectedElements.filter(el => el.type === 'node'); if (selectedNodes.length === 1) { const nodeMarker = nodeMarkersGroup.children.find(marker => marker.userData.nodeId === selectedNodes[0].id); if (nodeMarker) { transformControls.attach(nodeMarker); } else { transformControls.detach(); } } else if (selectedNodes.length > 1) { const averagePos = new THREE.Vector3(0, 0, 0); let count = 0; selectedNodes.forEach(selNode => { const node = nodes.find(n => n.id === selNode.id); if (node) { averagePos.add(new THREE.Vector3(node.x, node.z, node.y)); count++; } }); if (count > 0) { averagePos.divideScalar(count); multiSelectGizmoTarget.position.copy(averagePos); transformControls.attach(multiSelectGizmoTarget); } else { transformControls.detach(); } } else { transformControls.detach(); } draw2D(); update3DNodeMarkers(); }
+        function updateNodePropertiesUI() { const selectedNodes = selectedElements.filter(el => el.type === 'node'); if (selectedNodes.length >= 1) { nodePropertiesContainer.style.display = 'block'; if(bgSettingsContainer.style.display !== 'block' && projectsPopup.style.display !== 'block') bgSettingsContainer.style.display = 'none'; } else { nodePropertiesContainer.style.display = 'none'; } if (selectedNodes.length === 1) { const node = nodes.find(n => n.id === selectedNodes[0].id); if (node) { nodePropertiesDiv.innerHTML = `Node ID: ${node.id}<br>X: ${node.x.toFixed(2)}<br>Y: ${node.y.toFixed(2)}`; nodeHeightInput.value = node.z; nodeWidthInput.value = node.width ?? DEFAULT_TRACK_WIDTH; nodeHeightInput.disabled = false; nodeWidthInput.disabled = false; nodeHeightInput.placeholder = ''; nodeWidthInput.placeholder = ''; } else { nodePropertiesDiv.textContent = 'Selected node not found.'; nodeHeightInput.value = ''; nodeWidthInput.value = ''; nodeHeightInput.disabled = true; nodeWidthInput.disabled = true; nodeHeightInput.placeholder = ''; nodeWidthInput.placeholder = ''; } } else if (selectedNodes.length > 1) { nodePropertiesDiv.innerHTML = `${selectedNodes.length} nodes selected.`; const firstHeight = nodes.find(n => n.id === selectedNodes[0].id)?.z; const firstWidth = nodes.find(n => n.id === selectedNodes[0].id)?.width ?? DEFAULT_TRACK_WIDTH; const allSameHeight = selectedNodes.every(selNode => nodes.find(n => n.id === selNode.id)?.z === firstHeight); const allSameWidth = selectedNodes.every(selNode => (nodes.find(n => n.id === selNode.id)?.width ?? DEFAULT_TRACK_WIDTH) === firstWidth); if (allSameHeight) { nodeHeightInput.value = firstHeight; nodeHeightInput.placeholder = ''; } else { nodeHeightInput.value = ''; nodeHeightInput.placeholder = '---'; } if (allSameWidth) { nodeWidthInput.value = firstWidth; nodeWidthInput.placeholder = ''; } else { nodeWidthInput.value = ''; nodeWidthInput.placeholder = '---'; } nodeHeightInput.disabled = false; nodeWidthInput.disabled = false; } else { nodePropertiesDiv.textContent = 'Select node(s) to see properties.'; nodeHeightInput.value = ''; nodeWidthInput.value = ''; nodeHeightInput.disabled = true; nodeWidthInput.disabled = true; nodeHeightInput.placeholder = ''; nodeWidthInput.placeholder = ''; } }
+        function updateSelectedNodeHeight() { const selectedNodeIds = selectedElements.filter(el => el.type === 'node').map(el => el.id); if (selectedNodeIds.length > 0) { const newHeight = parseFloat(nodeHeightInput.value); if (!isNaN(newHeight)) { let changed = false; nodes.forEach(node => { if (selectedNodeIds.includes(node.id)) { if (node.z !== newHeight) { node.z = newHeight; changed = true; } } }); if (changed) { updateNodePropertiesUI(); update3DTrack(); } } } }
+        function updateSelectedNodeWidth() { const selectedNodeIds = selectedElements.filter(el => el.type === 'node').map(el => el.id); if (selectedNodeIds.length > 0) { const newWidth = parseFloat(nodeWidthInput.value); if (!isNaN(newWidth) && newWidth >= 0.1) { let changed = false; nodes.forEach(node => { if (selectedNodeIds.includes(node.id)) { node.width = newWidth; changed = true; } }); if (changed) { updateNodePropertiesUI(); update3DTrackGeometry(); } } else { updateNodePropertiesUI(); } } }
+
+        // --- Focus Function --- (Unchanged)
+        function focusOnSelection() { const selectedNodes = selectedElements.filter(el => el.type === 'node'); let targetWorld = { x: 0, y: 0 }; let target3D = new THREE.Vector3(0, 0, 0); if (selectedNodes.length > 0) { let avgX = 0, avgY = 0, avgZ = 0; selectedNodes.forEach(selNode => { const node = nodes.find(n => n.id === selNode.id); if (node) { avgX += node.x; avgY += node.y; avgZ += node.z; } }); targetWorld.x = avgX / selectedNodes.length; targetWorld.y = avgY / selectedNodes.length; target3D.x = targetWorld.x; target3D.y = avgZ / selectedNodes.length; target3D.z = targetWorld.y; } const newPanX = canvasWidth / 2 - targetWorld.x * zoom; const newPanY = canvasHeight / 2 - targetWorld.y * zoom; panX = newPanX; panY = newPanY; draw2D(); isCameraAnimating = true; orbitControls.enabled = false; cameraAnimationStartTime = performance.now(); cameraAnimationStartPos.copy(camera.position); cameraAnimationStartTarget.copy(orbitControls.target); cameraAnimationEndTarget.copy(target3D); const offset = cameraAnimationStartPos.clone().sub(cameraAnimationStartTarget); cameraAnimationEndPos.copy(cameraAnimationEndTarget).add(offset); console.log("Focusing on:", selectedNodes.length > 0 ? "Selection" : "Origin"); }
+
+        // --- Brush Select Logic --- (Unchanged)
+        function selectNodesInBrush(brushWorldX, brushWorldY, isShiftKey, isMouseDown) { let selectionChanged = false; const brushRadiusSq = brushSelectRadiusWorld * brushSelectRadiusWorld; nodes.forEach(node => { const dx = node.x - brushWorldX; const dy = node.y - brushWorldY; const distSq = dx * dx + dy * dy; const nodeElement = { type: 'node', id: node.id }; const index = selectedElements.findIndex(el => el.type === 'node' && el.id === node.id); const isCurrentlySelected = index > -1; if (distSq <= brushRadiusSq) { if (isShiftKey) { if (isCurrentlySelected) { selectedElements.splice(index, 1); selectionChanged = true; } } else { if (!isCurrentlySelected) { selectedElements.push(nodeElement); selectionChanged = true; } } } }); if (selectionChanged) { updateSelectionVisuals(); } }
+
+        // --- 3D Update Functions --- (Unchanged)
+        function update3DTrackGeometry() { while (trackMeshGroup.children.length > 0) { const mesh = trackMeshGroup.children[0]; trackMeshGroup.remove(mesh); if (mesh.geometry) mesh.geometry.dispose(); if (mesh.material) mesh.material.dispose(); } roadCurvesCache = []; const material = new THREE.MeshLambertMaterial({ color: 0x444444, side: THREE.DoubleSide }); segments.forEach(seg => { const startNode = nodes.find(n => n.id === seg.startNodeId); const endNode = nodes.find(n => n.id === seg.endNodeId); if (!startNode || !endNode) return; const startWidth = startNode.width ?? DEFAULT_TRACK_WIDTH; const endWidth = endNode.width ?? DEFAULT_TRACK_WIDTH; const curve = new THREE.CubicBezierCurve3( new THREE.Vector3(startNode.x, startNode.z, startNode.y), new THREE.Vector3(seg.cp1x, startNode.z + (endNode.z - startNode.z) / 3, seg.cp1y), new THREE.Vector3(seg.cp2x, startNode.z + 2 * (endNode.z - startNode.z) / 3, seg.cp2y), new THREE.Vector3(endNode.x, endNode.z, endNode.y) ); roadCurvesCache.push(curve); const points = curve.getPoints(TRACK_SEGMENTS); const vertices = []; const indices = []; const tempVec = new THREE.Vector3(); for (let i = 0; i <= TRACK_SEGMENTS; i++) { const t = i / TRACK_SEGMENTS; const point = points[i]; const tangent = curve.getTangentAt(t).normalize(); let binormal = tempVec.crossVectors(UP_VECTOR, tangent).normalize(); if (binormal.lengthSq() < 0.0001) { binormal.crossVectors(new THREE.Vector3(1, 0, 0), tangent).normalize(); } const currentWidth = startWidth + (endWidth - startWidth) * t; const currentHalfWidth = Math.max(0.05, currentWidth / 2); const vLeft = point.clone().add(binormal.clone().multiplyScalar(-currentHalfWidth)); const vRight = point.clone().add(binormal.clone().multiplyScalar(currentHalfWidth)); vertices.push(vLeft.x, vLeft.y, vLeft.z); vertices.push(vRight.x, vRight.y, vRight.z); if (i > 0) { const idx = i * 2; indices.push(idx - 2, idx - 1, idx); indices.push(idx, idx - 1, idx + 1); } } const geometry = new THREE.BufferGeometry(); geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3)); geometry.setIndex(indices); geometry.computeVertexNormals(); const mesh = new THREE.Mesh(geometry, material); mesh.castShadow = true; mesh.receiveShadow = true; trackMeshGroup.add(mesh); }); }
+        function update3DNodeMarkers() { const existingMarkers = new Map(); nodeMarkersGroup.children.forEach(marker => { existingMarkers.set(marker.userData.nodeId, marker); }); const currentMarkerIds = new Set(); nodes.forEach(node => { currentMarkerIds.add(node.id); const markerName = NODE_MARKER_PREFIX + node.id; let marker = existingMarkers.get(node.id); const isNodeSelected = selectedElements.some(el => el.type === 'node' && el.id === node.id); const color = isNodeSelected ? 0xff0000 : 0x0000ff; const markerPos = new THREE.Vector3(node.x, node.z, node.y); if (marker) { marker.position.copy(markerPos); marker.material.color.setHex(color); } else { const sphereGeo = new THREE.SphereGeometry(NODE_RADIUS / 5, 16, 16); const sphereMat = new THREE.MeshBasicMaterial({ color: color, depthTest: false }); marker = new THREE.Mesh(sphereGeo, sphereMat); marker.position.copy(markerPos); marker.name = markerName; marker.renderOrder = 1; marker.userData = { nodeId: node.id }; nodeMarkersGroup.add(marker); } }); nodeMarkersGroup.children.slice().forEach(marker => { if (!currentMarkerIds.has(marker.userData.nodeId)) { if (transformControls.object === marker) { transformControls.detach(); } nodeMarkersGroup.remove(marker); marker.geometry.dispose(); marker.material.dispose(); } }); }
+        function update3DTrack() { update3DTrackGeometry(); update3DNodeMarkers(); }
+
+        // --- Terrain Generation --- (Unchanged)
+        function clearTerrain() { while (terrainMeshGroup.children.length > 0) { const mesh = terrainMeshGroup.children[0]; terrainMeshGroup.remove(mesh); if (mesh.geometry) mesh.geometry.dispose(); if (mesh.material) mesh.material.dispose(); } const grid = scene.getObjectByName("GridHelper"); if (grid) grid.visible = true; }
+        function findNearestPointOnRoadNetwork(terrainVertexPos) { let closestPoint = null; let minDistanceSq = Infinity; const tempPoint = new THREE.Vector3(); roadCurvesCache.forEach(curve => { const divisions = TRACK_SEGMENTS * 2; for (let i = 0; i <= divisions; i++) { const t = i / divisions; curve.getPointAt(t, tempPoint); const dx = tempPoint.x - terrainVertexPos.x; const dz = tempPoint.z - terrainVertexPos.z; const distSq = dx * dx + dz * dz; if (distSq < minDistanceSq) { minDistanceSq = distSq; closestPoint = tempPoint.clone(); } } }); return { point: closestPoint, distanceSq: minDistanceSq }; }
+        function generateTerrain() { console.log("Generating Terrain..."); clearTerrain(); if (roadCurvesCache.length === 0) { console.warn("No road segments exist"); return; } const terrainGeometry = new THREE.PlaneGeometry(TERRAIN_SIZE, TERRAIN_SIZE, TERRAIN_SUBDIVISIONS, TERRAIN_SUBDIVISIONS); terrainGeometry.rotateX(-Math.PI / 2); const positions = terrainGeometry.attributes.position; const vertex = new THREE.Vector3(); for (let i = 0; i < positions.count; i++) { vertex.fromBufferAttribute(positions, i); const nearestRoadInfo = findNearestPointOnRoadNetwork(vertex); let targetHeight = TERRAIN_BASE_HEIGHT; if (nearestRoadInfo.point) { const roadHeight = nearestRoadInfo.point.y; const distance = Math.sqrt(nearestRoadInfo.distanceSq); let influence = 0; if (distance < TERRAIN_INFLUENCE_RADIUS) { influence = Math.pow(1.0 - Math.min(distance / TERRAIN_INFLUENCE_RADIUS, 1.0), TERRAIN_FALLOFF_POWER); } const heightUnderRoad = roadHeight - 0.1; targetHeight = TERRAIN_BASE_HEIGHT + (heightUnderRoad - TERRAIN_BASE_HEIGHT) * influence; } positions.setY(i, targetHeight); } positions.needsUpdate = true; terrainGeometry.computeVertexNormals(); const terrainMaterial = new THREE.MeshStandardMaterial({ color: 0x55aa55, wireframe: false, roughness: 0.8, metalness: 0.1 }); const terrainMesh = new THREE.Mesh(terrainGeometry, terrainMaterial); terrainMesh.receiveShadow = true; terrainMeshGroup.add(terrainMesh); const grid = scene.getObjectByName("GridHelper"); if (grid) grid.visible = false; console.log("Terrain Generated."); }
+
+        // --- Project Management Functions --- (Unchanged)
+        function getProjects() { try { const data = localStorage.getItem(PROJECTS_STORAGE_KEY); return data ? JSON.parse(data) : {}; } catch (e) { console.error("Error reading projects from localStorage:", e); return {}; } }
+        function saveProjects(projects) { try { localStorage.setItem(PROJECTS_STORAGE_KEY, JSON.stringify(projects)); } catch (e) { console.error("Error saving projects to localStorage:", e); showStatusMessage("Failed to save projects!", 3000); } }
+        function generateDefaultProjectName() { const projects = getProjects(); let i = 1; let name; do { name = `Unnamed ${i}`; i++; } while (projects[name]); return name; }
+        function updateCurrentProjectNameDisplay() { currentProjectNameDiv.textContent = currentProjectName || "Untitled Project"; projectNameInput.value = currentProjectName || ""; }
+        function saveProject(projectName, projectData) { if (!projectName) { console.error("Project name cannot be empty."); showStatusMessage("Project name cannot be empty!", 3000); return false; } const projects = getProjects(); projects[projectName] = projectData; saveProjects(projects); return true; }
+        function handleSaveAs() { let name = projectNameInput.value.trim(); if (!name) { name = generateDefaultProjectName(); projectNameInput.value = name; } const currentData = { nodes: nodes, segments: segments, nextNodeId: nextNodeId, nextSegmentId: nextSegmentId, lastSaved: new Date().toISOString() }; if (saveProject(name, currentData)) { currentProjectName = name; updateCurrentProjectNameDisplay(); showStatusMessage(`Project '${name}' saved!`); loadProjectsList(); } }
+        function loadSpecificProject(projectName) { const projects = getProjects(); if (projects[projectName]) { const projectData = projects[projectName]; nodes = projectData.nodes || []; nodes.forEach(n => { if (n.width === undefined) n.width = DEFAULT_TRACK_WIDTH; }); segments = projectData.segments || []; nextNodeId = projectData.nextNodeId || 0; nextSegmentId = projectData.nextSegmentId || 0; currentProjectName = projectName; updateCurrentProjectNameDisplay(); selectedElements = []; draggingElement = null; firstNodeToConnect = null; clearTerrain(); setActiveTool('select'); updateSelectionVisuals(); update3DTrack(); projectsPopup.style.display = 'none'; projectsBtn.classList.remove('active-tool'); showStatusMessage(`Project '${projectName}' loaded.`); } else { console.error(`Project '${projectName}' not found.`); showStatusMessage(`Error: Project '${projectName}' not found.`, 3000); } }
+        function renameProject(oldName) { const projects = getProjects(); if (!projects[oldName]) return; const newName = prompt(`Enter new name for project "${oldName}":`, oldName); if (newName && newName.trim() && newName !== oldName) { const cleanNewName = newName.trim(); if (projects[cleanNewName]) { alert(`Error: Project name "${cleanNewName}" already exists.`); return; } projects[cleanNewName] = projects[oldName]; delete projects[oldName]; saveProjects(projects); if (currentProjectName === oldName) { currentProjectName = cleanNewName; updateCurrentProjectNameDisplay(); } loadProjectsList(); showStatusMessage(`Project renamed to '${cleanNewName}'.`); } }
+        function deleteProject(projectName) { if (!confirm(`Are you sure you want to delete project "${projectName}"? This cannot be undone.`)) return; const projects = getProjects(); if (projects[projectName]) { delete projects[projectName]; saveProjects(projects); if (currentProjectName === projectName) { currentProjectName = null; updateCurrentProjectNameDisplay(); } loadProjectsList(); showStatusMessage(`Project '${projectName}' deleted.`); } }
+        function exportProjectData(projectName) { const projects = getProjects(); if (projects[projectName]) { try { const projectData = projects[projectName]; const jsonString = JSON.stringify(projectData, null, 2); const blob = new Blob([jsonString], { type: 'application/json;charset=utf-8' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${projectName}.json`; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url); } catch (e) { console.error("Error exporting project:", e); showStatusMessage("Error exporting project.", 3000); } } }
+        function handleImportProject(event) { const file = event.target.files[0]; if (!file) return; const reader = new FileReader(); reader.onload = (e) => { try { const importedData = JSON.parse(e.target.result); if (!importedData || typeof importedData !== 'object' || !importedData.nodes || !importedData.segments || importedData.nextNodeId === undefined || importedData.nextSegmentId === undefined) { throw new Error("Invalid project file format."); } const suggestedName = file.name.replace(/\.[^/.]+$/, ""); const projectName = prompt(`Enter name for imported project (or leave blank to generate):`, suggestedName) || generateDefaultProjectName(); if (saveProject(projectName.trim(), importedData)) { showStatusMessage(`Project '${projectName}' imported successfully!`); loadProjectsList(); } } catch (error) { console.error("Error importing project:", error); alert(`Error importing project: ${error.message}`); } finally { importProjectInput.value = ''; } }; reader.onerror = () => { console.error("Error reading project file."); alert("Error reading project file."); importProjectInput.value = ''; }; reader.readAsText(file); }
+        function loadProjectsList() { const projects = getProjects(); projectListUl.innerHTML = ''; const projectNames = Object.keys(projects).sort(); if (projectNames.length === 0) { projectListUl.innerHTML = '<li class="text-center text-gray-500 text-xs italic">No projects saved</li>'; return; } projectNames.forEach(name => { const li = document.createElement('li'); const nameSpan = document.createElement('span'); nameSpan.textContent = name; nameSpan.className = 'truncate ...'; li.appendChild(nameSpan); const buttonsDiv = document.createElement('div'); buttonsDiv.className = 'flex-shrink-0'; const loadBtnLi = document.createElement('button'); loadBtnLi.textContent = 'Load'; loadBtnLi.className = 'button-std button-sm'; loadBtnLi.onclick = () => loadSpecificProject(name); const renameBtnLi = document.createElement('button'); renameBtnLi.textContent = 'Rename'; renameBtnLi.className = 'button-std button-sm'; renameBtnLi.onclick = () => renameProject(name); const exportBtnLi = document.createElement('button'); exportBtnLi.textContent = 'Export'; exportBtnLi.className = 'button-std button-sm'; exportBtnLi.onclick = () => exportProjectData(name); const deleteBtnLi = document.createElement('button'); deleteBtnLi.textContent = 'Delete'; deleteBtnLi.className = 'button-std button-sm button-danger'; deleteBtnLi.onclick = () => deleteProject(name); buttonsDiv.appendChild(loadBtnLi); buttonsDiv.appendChild(renameBtnLi); buttonsDiv.appendChild(exportBtnLi); buttonsDiv.appendChild(deleteBtnLi); li.appendChild(buttonsDiv); projectListUl.appendChild(li); }); }
+
+        // --- Background Image Functions --- (Unchanged)
+        function handleBackgroundImageLoad(event) { const file = event.target.files[0]; if (file && file.type.startsWith('image/')) { const reader = new FileReader(); reader.onload = function(e) { const img = new Image(); img.onload = () => { backgroundImage = img; backgroundImageURL = img.src; console.log(`Background image loaded: ${img.width}x${img.height}`); draw2D(); }; img.onerror = () => { console.error("Error loading image data."); showStatusMessage("Failed to load image.", 3000); clearBackgroundImage(); }; img.src = e.target.result; }; reader.onerror = () => { console.error("Error reading file."); showStatusMessage("Failed to read file.", 3000); clearBackgroundImage(); }; reader.readAsDataURL(file); } else { console.warn("No valid image file selected."); clearBackgroundImage(); } event.target.value = null; }
+        function clearBackgroundImage() { if (backgroundImageURL) { /* No need to revoke data URL */ } backgroundImage = null; backgroundImageURL = null; console.log("Background image cleared."); draw2D(); }
+
+        // --- Export Functions --- (Unchanged)
+        function generateOBJ() { let obj = "# Track Editor Export\n# Generated: " + new Date().toISOString() + "\no TrackMesh\n"; const vertices = new Map(); let vertexIndex = 1; let vertexOutput = ""; let faceOutput = ""; function getVertexIndex(x, y, z) { const key = `${x.toFixed(4)}_${y.toFixed(4)}_${z.toFixed(4)}`; if (vertices.has(key)) { return vertices.get(key); } const newIndex = vertexIndex++; vertices.set(key, newIndex); vertexOutput += `v ${x.toFixed(4)} ${y.toFixed(4)} ${z.toFixed(4)}\n`; return newIndex; } trackMeshGroup.children.forEach(mesh => { if (mesh instanceof THREE.Mesh && mesh.geometry) { mesh.updateMatrixWorld(); const geometry = mesh.geometry; const positionAttribute = geometry.attributes.position; if (positionAttribute) { const indexAttribute = geometry.index; if (indexAttribute) { for (let i = 0; i < indexAttribute.count; i += 3) { const i1 = indexAttribute.getX(i); const i2 = indexAttribute.getX(i + 1); const i3 = indexAttribute.getX(i + 2); const v1 = new THREE.Vector3().fromBufferAttribute(positionAttribute, i1).applyMatrix4(mesh.matrixWorld); const v2 = new THREE.Vector3().fromBufferAttribute(positionAttribute, i2).applyMatrix4(mesh.matrixWorld); const v3 = new THREE.Vector3().fromBufferAttribute(positionAttribute, i3).applyMatrix4(mesh.matrixWorld); const idx1 = getVertexIndex(v1.x, v1.y, v1.z); const idx2 = getVertexIndex(v2.x, v2.y, v2.z); const idx3 = getVertexIndex(v3.x, v3.y, v3.z); faceOutput += `f ${idx1} ${idx2} ${idx3}\n`; } } else { for (let i = 0; i < positionAttribute.count; i += 3) { const v1 = new THREE.Vector3().fromBufferAttribute(positionAttribute, i).applyMatrix4(mesh.matrixWorld); const v2 = new THREE.Vector3().fromBufferAttribute(positionAttribute, i + 1).applyMatrix4(mesh.matrixWorld); const v3 = new THREE.Vector3().fromBufferAttribute(positionAttribute, i + 2).applyMatrix4(mesh.matrixWorld); const idx1 = getVertexIndex(v1.x, v1.y, v1.z); const idx2 = getVertexIndex(v2.x, v2.y, v2.z); const idx3 = getVertexIndex(v3.x, v3.y, v3.z); faceOutput += `f ${idx1} ${idx2} ${idx3}\n`; } } } } }); if (vertexIndex === 1) { console.warn("No geometry found to export."); return null; } obj += vertexOutput; obj += faceOutput; return obj; }
+        function exportToOBJ() { try { const objData = generateOBJ(); if (!objData) { alert("No track data to export."); return; } const blob = new Blob([objData], { type: 'text/plain;charset=utf-8' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${currentProjectName || 'track_export'}.obj`; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url); console.log("Exported OBJ"); } catch (error) { console.error("Error exporting OBJ:", error); alert("Error exporting OBJ. Check console for details."); } }
+
+        // --- Start the application ---
+        init();
+
+    </script>
+
+</body>
+</html>
