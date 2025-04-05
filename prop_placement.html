@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mesh Placer v2.1</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.163.0/examples/jsm/"
+            }
+        }
+    </script>
+    <style>
+        /* Basic Styling */
+        html, body { height: 100%; margin: 0; overflow: hidden; font-family: 'Inter', sans-serif; background-color: #f0f4f8; display: flex; flex-direction: column; }
+        canvas { display: block; }
+        #preview-3d-container { background-color: #e5e7eb; border: 1px solid #d1d5db; position: relative; width: 100%; height: 100%; cursor: default; overflow: hidden; /* Ensure canvas fits */ }
+        #preview-3d-canvas { width: 100%; height: 100%; } /* Canvas fills container */
+        .panel { background-color: #ffffff; padding: 1rem; border-radius: 0.5rem; box-shadow: 0 2px 4px rgba(0,0,0,0.1); overflow: auto; }
+        .tooltip-popup { position: absolute; left: 100%; top: 0; background-color: rgba(0, 0, 0, 0.8); color: white; padding: 10px 15px; border-radius: 6px; font-size: 13px; white-space: normal; pointer-events: none; display: none; z-index: 100; margin-left: 10px; width: 300px; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }
+        .tooltip-popup ul { list-style-position: inside; padding-left: 5px;}
+
+        .app-container { display: flex; flex-grow: 1; overflow: hidden; /* Main layout flex */ }
+
+        .sidebar { width: 64px; flex-shrink: 0; background-color: #4a5568; padding: 0.5rem; display: flex; flex-direction: column; align-items: center; box-shadow: 2px 0 5px rgba(0,0,0,0.1); z-index: 20; /* Ensure sidebar is above content */ }
+        .sidebar-btn { display: flex; justify-content: center; align-items: center; width: 40px; height: 40px; background-color: #6b7280; color: white; border-radius: 0.375rem; transition: background-color 0.2s; cursor: pointer; margin-bottom: 0.5rem; }
+        .sidebar-btn:hover { background-color: #4b5563; }
+        .sidebar-btn.active-tool { background-color: #4299e1; }
+        .sidebar-btn.active-tool:hover { background-color: #2b6cb0; }
+        .sidebar-btn img { width: 20px; height: 20px; filter: invert(1); }
+
+        .main-content-area { flex-grow: 1; display: flex; flex-direction: column; /* Column for 3D view + hotbar */ position: relative; /* For floating panels */ overflow: hidden; }
+         .main-content-area.drag-over { border: 3px dashed #4299e1; } /* Drag/Drop Cue */
+
+        #status-message { position: fixed; bottom: 90px; /* Adjusted for bigger hotbar */ left: calc(64px + 10px); /* Position relative to sidebar */ background-color: rgba(0, 0, 0, 0.7); color: white; padding: 5px 15px; border-radius: 5px; font-size: 14px; opacity: 0; transition: opacity 0.5s ease-out; pointer-events: none; z-index: 1000; }
+        #status-message.visible { opacity: 1; }
+        canvas:focus { outline: none; }
+
+        /* Floating Panels Styling */
+        .floating-panel { position: absolute; background-color: rgba(255, 255, 255, 0.9); backdrop-filter: blur(4px); padding: 0.75rem; border-radius: 0.5rem; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); z-index: 10; display: none; min-width: 220px; border: 1px solid rgba(0,0,0,0.1); }
+        #object-properties-container { top: 10px; left: 10px; /* Positioned within main-content-area */ }
+        #projects-popup { top: 10px; left: 10px; /* Also positioned top-left, JS toggles visibility */ max-height: calc(100vh - 120px); overflow-y: auto; }
+        .floating-panel label { display: block; margin-bottom: 0.25rem; font-size: 0.875rem; font-weight: 500; color: #4a5568; }
+        .floating-panel input[type=number], .floating-panel input[type=range], .floating-panel input[type=text] { margin-top: 0.25rem; }
+        .prop-input-group { margin-bottom: 0.5rem; }
+        .input-std { margin-top: 0.25rem; display: block; width: 100%; padding: 0.5rem; border: 1px solid #d1d5db; border-radius: 0.375rem; box-shadow: sm; outline: none; focus:ring-indigo-500 focus:border-indigo-500; font-size: 0.875rem; background-color: white; }
+        .button-std { display: inline-flex; items-center; padding: 0.25rem 0.75rem; background-color: #4a5568; color: white; border: none; border-radius: 0.375rem; font-size: 0.75rem; cursor: pointer; transition: background-color 0.2s; }
+        .button-std:hover { background-color: #2d3748; }
+        .button-sm { padding: 0.125rem 0.5rem; font-size: 0.7rem; margin-left: 0.25rem; }
+        .button-danger { background-color: #e53e3e; }
+        .button-danger:hover { background-color: #c53030; }
+        #project-list { max-height: 300px; overflow-y: auto; margin-top: 1rem; border: 1px solid #e5e7eb; padding: 0.5rem; border-radius: 0.25rem;}
+        #project-list li { display: flex; justify-content: space-between; align-items: center; padding: 0.25rem 0; border-bottom: 1px solid #e5e7eb; }
+        #project-list li:last-child { border-bottom: none; }
+        #project-list span { flex-grow: 1; margin-right: 0.5rem; font-size: 0.875rem; }
+
+        /* Hotbar Styling - Updated */
+        #hotbar {
+            height: 90px; /* Increased height */
+            width: 100%; /* Takes full width of its container */
+            background-color: rgba(55, 65, 81, 0.9); /* gray-700 */
+            backdrop-filter: blur(4px);
+            display: flex;
+            align-items: center;
+            padding: 5px 10px; /* Adjusted padding */
+            box-shadow: 0 -2px 5px rgba(0,0,0,0.1);
+            z-index: 999;
+            overflow-x: auto;
+            overflow-y: hidden; /* Prevent vertical scroll */
+            box-sizing: border-box;
+            flex-shrink: 0; /* Prevent hotbar from shrinking */
+        }
+        .hotbar-item {
+            width: 72px; /* Increased size */
+            height: 72px; /* Increased size */
+            background-color: #4b5563; /* gray-600 */
+            border: 2px solid #6b7280; /* gray-500 */
+            border-radius: 4px;
+            margin: 0 5px;
+            display: flex; /* Use flex for centering canvas */
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            overflow: hidden; /* Clip canvas */
+            position: relative; /* For remove button */
+            flex-shrink: 0;
+            padding: 2px; /* Small padding around canvas */
+            box-sizing: border-box;
+        }
+         .hotbar-item canvas { /* Style the preview canvas */
+             max-width: 100%;
+             max-height: 100%;
+             display: block;
+             border-radius: 2px; /* Slightly rounded corners for canvas */
+         }
+        .hotbar-item:hover { background-color: #9ca3af; /* gray-400 */ }
+        .hotbar-item.selected { border-color: #f59e0b; /* amber-500 */ background-color: #6b7280; /* gray-500 */ border-width: 3px; }
+        .hotbar-item .item-name-tooltip { /* Tooltip for filename */
+             position: absolute;
+             bottom: 100%;
+             left: 50%;
+             transform: translateX(-50%) translateY(-5px);
+             background-color: rgba(0,0,0,0.7);
+             color: white;
+             padding: 3px 8px;
+             border-radius: 4px;
+             font-size: 10px;
+             white-space: nowrap;
+             opacity: 0;
+             transition: opacity 0.2s;
+             pointer-events: none;
+             z-index: 1; /* Below remove button */
+         }
+         .hotbar-item:hover .item-name-tooltip {
+             opacity: 1;
+         }
+         /* Remove Button Styling */
+         .remove-hotbar-btn {
+             position: absolute;
+             top: 0px;
+             right: 0px;
+             width: 18px;
+             height: 18px;
+             background-color: rgba(239, 68, 68, 0.7); /* red-500 with transparency */
+             color: white;
+             border: none;
+             border-radius: 0 4px 0 4px; /* Top-right and bottom-left */
+             font-size: 12px;
+             font-weight: bold;
+             line-height: 16px; /* Center 'X' vertically */
+             text-align: center;
+             cursor: pointer;
+             opacity: 0;
+             transition: opacity 0.2s, background-color 0.2s;
+             z-index: 2; /* Above tooltip */
+             padding: 0;
+         }
+         .hotbar-item:hover .remove-hotbar-btn {
+             opacity: 1;
+         }
+         .remove-hotbar-btn:hover {
+             background-color: rgba(220, 38, 38, 0.9); /* darker red-600 */
+         }
+
+
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <div class="sidebar">
+            <button id="select-tool-btn" title="Select Tool (Escape)" class="sidebar-btn active-tool"> <img src="https://cdn.jsdelivr.net/npm/lucide-static@latest/icons/mouse-pointer-2.svg" alt="Select Tool"> </button>
+            <button id="delete-btn" title="Delete Selected (Del/Backspace)" class="sidebar-btn"> <img src="https://cdn.jsdelivr.net/npm/lucide-static@latest/icons/trash-2.svg" alt="Delete"> </button>
+            <hr class="w-full border-gray-600 my-1">
+            <button id="import-mesh-btn" title="Import OBJ Mesh (or Drag & Drop)" class="sidebar-btn"> <img src="https://cdn.jsdelivr.net/npm/lucide-static@latest/icons/upload-cloud.svg" alt="Import Mesh"> </button>
+             <hr class="w-full border-gray-600 my-1">
+            <button id="projects-btn" title="Manage Projects" class="sidebar-btn"> <img src="https://cdn.jsdelivr.net/npm/lucide-static@latest/icons/folder-kanban.svg" alt="Manage Projects"> </button>
+            <button id="export-scene-btn" title="Export Scene (E)" class="sidebar-btn"> <img src="https://cdn.jsdelivr.net/npm/lucide-static@latest/icons/download.svg" alt="Export Scene"> </button>
+            <hr class="w-full border-gray-600 my-1">
+            <button id="info-btn" title="Show Instructions" class="sidebar-btn mt-auto"> <img src="https://cdn.jsdelivr.net/npm/lucide-static@latest/icons/info.svg" alt="Info"> </button>
+
+            <div id="instructions-popup" class="tooltip-popup">
+                <h3 class="font-semibold mb-1 text-base">Instructions & Shortcuts:</h3>
+                <ul class="list-disc text-sm space-y-1">
+                    <li>Import OBJ: Click Upload Icon or Drag & Drop files.</li>
+                    <li>Hotbar: Click preview to select for placement. Hover for name & 'X' to remove.</li>
+                    <li>Place Mesh: Left Click on ground/object.</li>
+                    <li>Select Placed: Left Click the object.</li>
+                    <li>Deselect: Escape key.</li>
+                    <li>Delete Selected: Del/Backspace or Trash Icon.</li>
+                    <li>Rotate Selected: Hold Shift + Mouse Wheel.</li>
+                    <li>Orbit 3D: Middle Mouse Drag.</li>
+                    <li>Pan 3D: Right Mouse Drag.</li>
+                    <li>Zoom 3D: Mouse Wheel.</li>
+                    <li>Save/Load/Manage projects via Folder Icon panel.</li>
+                    <li>Export Entire Scene as OBJ (E or Download Icon).</li>
+                </ul>
+            </div>
+            <input type="file" id="import-mesh-input" accept=".obj" style="display: none;" multiple>
+            <input type="file" id="import-project-input" accept=".json,application/json" style="display: none;">
+        </div>
+
+        <div class="main-content-area" id="main-content">
+            <div id="preview-3d-container" class="flex-grow">
+                <canvas id="preview-3d-canvas"></canvas>
+                <div class="absolute top-3 left-3 z-10 bg-white/50 px-2 py-0.5 rounded text-sm font-medium text-gray-700 pointer-events-none" id="current-project-name">Untitled Scene</div>
+            </div>
+
+             <div id="hotbar">
+                <div id="hotbar-placeholder" class="text-gray-400 text-xs italic p-2">Import .obj files (or Drag & Drop) to add them here...</div>
+            </div>
+
+             <div id="object-properties-container" class="floating-panel">
+                 <h2 class="text-sm font-semibold mb-2 text-gray-700">Object Properties</h2>
+                 <div id="object-properties" class="text-sm text-gray-600">Select an object.</div>
+                 </div>
+
+            <div id="projects-popup" class="floating-panel">
+                 <h2 class="text-sm font-semibold mb-2 text-gray-700">Project Management</h2>
+                 <div class="mb-2">
+                     <label for="project-name-input">Project Name:</label>
+                     <input type="text" id="project-name-input" class="input-std" placeholder="Enter name...">
+                 </div>
+                 <div class="flex space-x-2 mb-3">
+                     <button id="save-as-btn" class="button-std text-xs">Save Current As</button>
+                     <button id="import-project-btn" class="button-std text-xs">Import Project</button>
+                 </div>
+                 <h3 class="text-xs font-medium text-gray-600 mt-2 mb-1">Saved Projects:</h3>
+                 <ul id="project-list" class="bg-gray-50 rounded">
+                     <li class="text-center text-gray-500 text-xs italic">No projects saved</li>
+                 </ul>
+             </div>
+        </div>
+
+    </div> <div id="status-message">Status Message</div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
+        import { BoxHelper } from 'three'; // For selection visualization
+
+        // --- Constants ---
+        const PROJECTS_STORAGE_KEY = 'meshPlacer_Projects_v2';
+        const HOTBAR_STORAGE_KEY = 'meshPlacer_Hotbar_v2';
+        const GROUND_SIZE = 500;
+        const THUMBNAIL_SIZE = 64;
+
+        // --- State Variables ---
+        let scene, camera, renderer, orbitControls;
+        let placedObjectsGroup, groundPlane, selectionBoxHelper;
+        let raycaster = new THREE.Raycaster();
+        let pointer = new THREE.Vector2();
+
+        let hotbarItems = []; // { name: string, meshProto: THREE.Group | THREE.Mesh, element: HTMLElement, thumbnailCanvas: HTMLCanvasElement }
+        let activeHotbarIndex = -1;
+        let placedObjects = []; // { id: number, mesh: THREE.Object3D, sourceName: string }
+        let selectedObject = null;
+        let nextPlacedObjectId = 0;
+
+        let currentProjectName = null;
+        let isMouseDragging = false;
+
+        // --- UI Elements ---
+        const previewContainer = document.getElementById('preview-3d-container');
+        const previewCanvas = document.getElementById('preview-3d-canvas');
+        const mainContentArea = document.getElementById('main-content');
+        const selectToolBtn = document.getElementById('select-tool-btn');
+        const deleteBtn = document.getElementById('delete-btn');
+        const importMeshBtn = document.getElementById('import-mesh-btn');
+        const importMeshInput = document.getElementById('import-mesh-input');
+        const projectsBtn = document.getElementById('projects-btn');
+        const exportSceneBtn = document.getElementById('export-scene-btn');
+        const objectPropertiesContainer = document.getElementById('object-properties-container');
+        const objectPropertiesDiv = document.getElementById('object-properties');
+        const statusMessageDiv = document.getElementById('status-message');
+        const infoBtn = document.getElementById('info-btn');
+        const instructionsPopup = document.getElementById('instructions-popup');
+        const projectsPopup = document.getElementById('projects-popup');
+        const projectNameInput = document.getElementById('project-name-input');
+        const saveAsBtn = document.getElementById('save-as-btn');
+        const importProjectBtn = document.getElementById('import-project-btn');
+        const importProjectInput = document.getElementById('import-project-input');
+        const projectListUl = document.getElementById('project-list');
+        const currentProjectNameDiv = document.getElementById('current-project-name');
+        const hotbarDiv = document.getElementById('hotbar');
+        const hotbarPlaceholder = document.getElementById('hotbar-placeholder'); // Get placeholder element
+
+        // --- Initialization ---
+        function init() {
+            init3D();
+            setupEventListeners();
+            updateCurrentProjectNameDisplay();
+            loadHotbarFromLocalStorage();
+            resizeRenderer();
+            console.log("Mesh Placer v2.1 Initialized");
+        }
+
+         function resizeRenderer() {
+             if (!renderer || !camera || !previewContainer) return;
+             const width = previewContainer.clientWidth;
+             const height = previewContainer.clientHeight;
+             if (width > 0 && height > 0) {
+                 renderer.setSize(width, height);
+                 camera.aspect = width / height;
+                 camera.updateProjectionMatrix();
+             }
+         }
+
+        function init3D() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xd0e0f0);
+            const initialWidth = previewContainer.clientWidth || 600;
+            const initialHeight = previewContainer.clientHeight || 400;
+            camera = new THREE.PerspectiveCamera(60, initialWidth / initialHeight, 0.1, 5000);
+            camera.position.set(30, 30, 50);
+            camera.lookAt(0, 0, 0);
+            renderer = new THREE.WebGLRenderer({ canvas: previewCanvas, antialias: true });
+            renderer.setSize(initialWidth, initialHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+            scene.add(ambientLight);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(100, 150, 100);
+            directionalLight.castShadow = true;
+            directionalLight.shadow.mapSize.width = 2048; directionalLight.shadow.mapSize.height = 2048;
+            directionalLight.shadow.camera.near = 0.5; directionalLight.shadow.camera.far = 500;
+            const shadowCamSize = 150;
+            directionalLight.shadow.camera.left = -shadowCamSize; directionalLight.shadow.camera.right = shadowCamSize;
+            directionalLight.shadow.camera.top = shadowCamSize; directionalLight.shadow.camera.bottom = -shadowCamSize;
+            scene.add(directionalLight);
+            orbitControls = new OrbitControls(camera, renderer.domElement);
+            orbitControls.enableDamping = true; orbitControls.dampingFactor = 0.1; orbitControls.screenSpacePanning = true;
+            orbitControls.mouseButtons = { LEFT: null, MIDDLE: THREE.MOUSE.ROTATE, RIGHT: THREE.MOUSE.PAN };
+            orbitControls.touches = { ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_ROTATE };
+            const groundGeometry = new THREE.PlaneGeometry(GROUND_SIZE, GROUND_SIZE);
+            const groundMaterial = new THREE.MeshStandardMaterial({ color: 0x88aa88, roughness: 0.8, metalness: 0.2 });
+            groundPlane = new THREE.Mesh(groundGeometry, groundMaterial);
+            groundPlane.rotation.x = -Math.PI / 2; groundPlane.receiveShadow = true; groundPlane.name = "GroundPlane";
+            scene.add(groundPlane);
+            const gridHelper = new THREE.GridHelper(GROUND_SIZE, GROUND_SIZE / 10, 0xcccccc, 0xcccccc);
+            scene.add(gridHelper);
+            placedObjectsGroup = new THREE.Group(); scene.add(placedObjectsGroup);
+            selectionBoxHelper = new BoxHelper(new THREE.Mesh(), 0xffff00);
+            selectionBoxHelper.material.depthTest = false; selectionBoxHelper.material.linewidth = 2; selectionBoxHelper.visible = false;
+            scene.add(selectionBoxHelper);
+            new ResizeObserver(resizeRenderer).observe(previewContainer);
+            animate3D();
+        }
+
+        function animate3D() {
+            requestAnimationFrame(animate3D);
+            orbitControls.update();
+            renderer.render(scene, camera);
+        }
+
+        // --- Interaction Functions ---
+        function getMousePos(evt, element) { const rect = element.getBoundingClientRect(); return { x: evt.clientX - rect.left, y: evt.clientY - rect.top, clientX: evt.clientX, clientY: evt.clientY }; }
+        function handleMouseDown(event) { if (event.target !== renderer.domElement) return; isMouseDragging = false; if (event.button === 1 || event.button === 2) { isMouseDragging = true; } }
+        function handleMouseMove(event) { if (event.target !== renderer.domElement) return; if (event.buttons === 1) { isMouseDragging = true; } }
+        function handleMouseUp(event) { if (event.target !== renderer.domElement) return; if (!isMouseDragging && event.button === 0) { handleClickToPlaceOrSelect(event); } isMouseDragging = false; }
+
+        function handleClickToPlaceOrSelect(event) {
+            const pos = getMousePos(event, renderer.domElement);
+            pointer.x = (pos.x / previewContainer.clientWidth) * 2 - 1;
+            pointer.y = -(pos.y / previewContainer.clientHeight) * 2 + 1;
+            raycaster.setFromCamera(pointer, camera);
+            if (activeHotbarIndex !== -1) {
+                const placementTargets = [groundPlane, ...placedObjectsGroup.children];
+                const intersects = raycaster.intersectObjects(placementTargets, true);
+                if (intersects.length > 0) {
+                    const intersectionPoint = intersects[0].point;
+                    intersectionPoint.y += 0.01; // Offset
+                    placeObject(activeHotbarIndex, intersectionPoint);
+                }
+            } else {
+                const intersects = raycaster.intersectObjects(placedObjectsGroup.children, true);
+                if (intersects.length > 0) {
+                     let clickedPlacedObject = intersects[0].object;
+                     while (clickedPlacedObject.parent !== placedObjectsGroup && clickedPlacedObject.parent !== null) { clickedPlacedObject = clickedPlacedObject.parent; }
+                    if (clickedPlacedObject.parent === placedObjectsGroup) { selectPlacedObject(clickedPlacedObject); }
+                    else { selectPlacedObject(null); }
+                } else { selectPlacedObject(null); }
+            }
+        }
+
+        function handleWheel(event) {
+             if (event.target === renderer.domElement && event.shiftKey && selectedObject) {
+                 event.preventDefault();
+                 const rotationAmount = -event.deltaY * 0.005;
+                 selectedObject.rotation.y += rotationAmount;
+                 if (selectionBoxHelper.visible) { selectionBoxHelper.update(); }
+                 updateObjectPropertiesUI();
+             }
+         }
+
+        function handleKeyDown(evt) {
+             if (evt.target.tagName === 'INPUT' || evt.target.tagName === 'TEXTAREA') return;
+             switch (evt.key.toUpperCase()) {
+                 case 'DELETE': case 'BACKSPACE': deleteSelectedObject(); break;
+                 case 'ESCAPE': selectPlacedObject(null); setActiveHotbarItem(-1); toggleProjectsPopup(false); break;
+                 case 'E': exportSceneOBJ(); break;
+             }
+         }
+
+         // --- Drag and Drop ---
+         function handleDragOver(event) { event.preventDefault(); event.stopPropagation(); mainContentArea.classList.add('drag-over'); }
+         function handleDragLeave(event) { event.preventDefault(); event.stopPropagation(); mainContentArea.classList.remove('drag-over'); }
+         function handleDrop(event) {
+             event.preventDefault(); event.stopPropagation(); mainContentArea.classList.remove('drag-over');
+             const files = event.dataTransfer.files;
+             if (files && files.length > 0) {
+                 const objFiles = Array.from(files).filter(file => file.name.toLowerCase().endsWith('.obj'));
+                 if (objFiles.length > 0) { processImportedFiles(objFiles); }
+                 else { showStatusMessage("No .obj files found in dropped items.", 2000); }
+             }
+         }
+
+        function setupEventListeners() {
+             renderer.domElement.addEventListener('mousedown', handleMouseDown);
+             renderer.domElement.addEventListener('mousemove', handleMouseMove);
+             renderer.domElement.addEventListener('mouseup', handleMouseUp);
+             renderer.domElement.addEventListener('wheel', handleWheel, { passive: false });
+             renderer.domElement.addEventListener('contextmenu', (event) => event.preventDefault());
+             mainContentArea.addEventListener('dragover', handleDragOver);
+             mainContentArea.addEventListener('dragleave', handleDragLeave);
+             mainContentArea.addEventListener('drop', handleDrop);
+             window.addEventListener('keydown', handleKeyDown);
+             window.addEventListener('resize', resizeRenderer);
+             selectToolBtn.addEventListener('click', () => { selectPlacedObject(null); setActiveHotbarItem(-1); });
+             deleteBtn.addEventListener('click', deleteSelectedObject);
+             importMeshBtn.addEventListener('click', () => importMeshInput.click());
+             importMeshInput.addEventListener('change', (event) => processImportedFiles(event.target.files));
+             projectsBtn.addEventListener('click', () => toggleProjectsPopup());
+             exportSceneBtn.addEventListener('click', exportSceneOBJ);
+             infoBtn.addEventListener('mouseenter', () => { instructionsPopup.style.display = 'block'; });
+             infoBtn.addEventListener('mouseleave', () => { instructionsPopup.style.display = 'none'; });
+             saveAsBtn.addEventListener('click', handleSaveAs);
+             importProjectBtn.addEventListener('click', () => importProjectInput.click());
+             importProjectInput.addEventListener('change', handleImportProject);
+             document.addEventListener('click', (event) => {
+                 if (!projectsPopup.contains(event.target) && event.target !== projectsBtn && !projectsBtn.contains(event.target)) { toggleProjectsPopup(false); }
+                 // Logic for closing properties panel removed for simplicity, Esc key handles deselection
+             }, true);
+        }
+
+        // --- Core Logic Functions ---
+        function processImportedFiles(fileList) {
+            if (!fileList || fileList.length === 0) return;
+            const objFiles = Array.from(fileList).filter(file => file.name.toLowerCase().endsWith('.obj'));
+            if (objFiles.length === 0) { showStatusMessage("No .obj files found.", 2000); return; }
+            const loader = new OBJLoader();
+            let loadedCount = 0; let errors = 0;
+            showStatusMessage(`Importing ${objFiles.length} mesh(es)...`, 5000);
+            objFiles.forEach(file => {
+                 const reader = new FileReader();
+                 reader.onload = (e) => {
+                     try {
+                         const meshData = loader.parse(e.target.result);
+                         meshData.name = file.name;
+                         const box = new THREE.Box3().setFromObject(meshData);
+                         const center = box.getCenter(new THREE.Vector3());
+                         meshData.position.sub(center);
+                         meshData.traverse((child) => { if (child.isMesh) child.castShadow = true; });
+                         addMeshToHotbar(file.name, meshData);
+                         loadedCount++;
+                     } catch (error) { console.error(`Error parsing OBJ file "${file.name}":`, error); errors++;
+                     } finally { if (loadedCount + errors === objFiles.length) { showStatusMessage(`Import finished. Loaded: ${loadedCount}. Errors: ${errors}.`, errors > 0 ? 5000 : 3000); } }
+                 };
+                 reader.onerror = () => { console.error(`Error reading file "${file.name}".`); errors++; if (loadedCount + errors === objFiles.length) { showStatusMessage(`Import finished. Loaded: ${loadedCount}. Errors: ${errors}.`, 5000); } };
+                 reader.readAsText(file);
+            });
+            if (importMeshInput.value) { importMeshInput.value = ''; }
+        }
+
+        function addMeshToHotbar(name, meshData) {
+             if (hotbarItems.some(item => item.name === name)) { showStatusMessage(`Mesh "${name}" already in hotbar.`, 2000); return; }
+            const index = hotbarItems.length;
+            const itemDiv = document.createElement('div');
+            itemDiv.className = 'hotbar-item';
+            itemDiv.dataset.index = index;
+            const thumbnailCanvas = document.createElement('canvas');
+            thumbnailCanvas.width = THUMBNAIL_SIZE * window.devicePixelRatio;
+            thumbnailCanvas.height = THUMBNAIL_SIZE * window.devicePixelRatio;
+            thumbnailCanvas.style.width = `${THUMBNAIL_SIZE}px`; thumbnailCanvas.style.height = `${THUMBNAIL_SIZE}px`;
+            itemDiv.appendChild(thumbnailCanvas);
+            const tooltipSpan = document.createElement('span');
+            tooltipSpan.className = 'item-name-tooltip'; tooltipSpan.textContent = name;
+            itemDiv.appendChild(tooltipSpan);
+
+            // --- Add Remove Button ---
+            const removeBtn = document.createElement('button');
+            removeBtn.className = 'remove-hotbar-btn';
+            removeBtn.innerHTML = '&times;'; // 'X' symbol
+            removeBtn.title = `Remove ${name}`;
+            removeBtn.addEventListener('click', (event) => {
+                event.stopPropagation(); // Prevent selecting the item when clicking remove
+                removeMeshFromHotbar(index);
+            });
+            itemDiv.appendChild(removeBtn);
+            // --- End Add Remove Button ---
+
+            itemDiv.addEventListener('click', () => { setActiveHotbarItem(index); });
+
+            if (hotbarPlaceholder) hotbarPlaceholder.style.display = 'none'; // Hide placeholder
+            hotbarDiv.appendChild(itemDiv);
+            const newItem = { name: name, meshProto: meshData, element: itemDiv, thumbnailCanvas: thumbnailCanvas };
+            hotbarItems.push(newItem);
+            requestAnimationFrame(() => generateThumbnail(newItem));
+            saveHotbarToLocalStorage();
+        }
+
+        function removeMeshFromHotbar(index) {
+            if (index < 0 || index >= hotbarItems.length) {
+                console.error("Invalid index for hotbar removal:", index);
+                return;
+            }
+
+            const removedItem = hotbarItems[index];
+            console.log(`Removing item "${removedItem.name}" at index ${index}`);
+
+            // Remove element from DOM
+            removedItem.element.remove();
+
+            // Remove from array
+            hotbarItems.splice(index, 1);
+
+            // Update indices for subsequent items
+            for (let i = index; i < hotbarItems.length; i++) {
+                hotbarItems[i].element.dataset.index = i;
+                // Update remove button listener if needed (though accessing via index in listener is better)
+                const removeBtn = hotbarItems[i].element.querySelector('.remove-hotbar-btn');
+                if (removeBtn) {
+                    // Re-assign listener with correct new index
+                    removeBtn.onclick = (event) => {
+                         event.stopPropagation();
+                         removeMeshFromHotbar(i); // Use the updated index 'i'
+                    };
+                }
+            }
+
+            // Handle selection state
+            if (activeHotbarIndex === index) {
+                setActiveHotbarItem(-1); // Deselect if the removed item was active
+            } else if (activeHotbarIndex > index) {
+                setActiveHotbarItem(activeHotbarIndex - 1); // Adjust selection index if it came after the removed item
+            }
+
+            // Show placeholder if hotbar is now empty
+            if (hotbarItems.length === 0 && hotbarPlaceholder) {
+                hotbarPlaceholder.style.display = 'block';
+            }
+
+            saveHotbarToLocalStorage();
+            showStatusMessage(`Removed "${removedItem.name}" from hotbar.`);
+        }
+
+
+        function generateThumbnail(hotbarItem) {
+             const { meshProto, thumbnailCanvas } = hotbarItem;
+             if (!meshProto || !thumbnailCanvas) return;
+             const thumbScene = new THREE.Scene();
+             thumbScene.background = new THREE.Color(0x6b7280);
+             const thumbRenderer = new THREE.WebGLRenderer({ canvas: thumbnailCanvas, antialias: true, alpha: true });
+             thumbRenderer.setPixelRatio(window.devicePixelRatio);
+             thumbRenderer.setSize(THUMBNAIL_SIZE, THUMBNAIL_SIZE);
+             const thumbMesh = meshProto.clone(); thumbScene.add(thumbMesh);
+             const box = new THREE.Box3().setFromObject(thumbMesh);
+             const size = box.getSize(new THREE.Vector3()); const center = box.getCenter(new THREE.Vector3());
+             const maxDim = Math.max(size.x, size.y, size.z); const fov = 50;
+             let cameraDistance = maxDim / (2 * Math.tan(THREE.MathUtils.degToRad(fov / 2)));
+             cameraDistance *= 1.5;
+             const thumbCamera = new THREE.PerspectiveCamera(fov, 1, 0.1, Math.max(cameraDistance * 3, 0.1)); // Ensure far > near
+             thumbCamera.position.copy(center);
+             thumbCamera.position.x += cameraDistance; thumbCamera.position.y += cameraDistance * 0.5; thumbCamera.position.z += cameraDistance;
+             thumbCamera.lookAt(center);
+             const ambientLight = new THREE.AmbientLight(0xffffff, 0.8); thumbScene.add(ambientLight);
+             const dirLight = new THREE.DirectionalLight(0xffffff, 0.7);
+             dirLight.position.set(0.5, 1, 1).multiplyScalar(Math.max(cameraDistance, 1)); // Ensure light is not too close
+             thumbScene.add(dirLight);
+             thumbRenderer.render(thumbScene, thumbCamera);
+             // Cleanup
+             thumbMesh.traverse(child => {
+                 if (child.isMesh) {
+                     child.geometry?.dispose();
+                     if (child.material) {
+                          if (Array.isArray(child.material)) child.material.forEach(mat => mat.dispose());
+                          else child.material.dispose();
+                     }
+                 }
+             });
+             thumbRenderer.dispose();
+         }
+
+         function setActiveHotbarItem(index) {
+             if (index !== -1 && selectedObject) { selectPlacedObject(null); }
+             if (activeHotbarIndex !== -1 && hotbarItems[activeHotbarIndex]) { hotbarItems[activeHotbarIndex].element.classList.remove('selected'); }
+             activeHotbarIndex = index;
+             if (activeHotbarIndex !== -1 && hotbarItems[activeHotbarIndex]) {
+                 hotbarItems[activeHotbarIndex].element.classList.add('selected');
+                 renderer.domElement.style.cursor = 'copy';
+             } else {
+                 renderer.domElement.style.cursor = 'default';
+             }
+         }
+
+         function placeObject(hotbarIndex, position) {
+             if (hotbarIndex < 0 || hotbarIndex >= hotbarItems.length) return;
+             const sourceItem = hotbarItems[hotbarIndex];
+             const clonedMesh = sourceItem.meshProto.clone();
+             clonedMesh.position.copy(position);
+             clonedMesh.traverse((child) => { if (child.isMesh) { child.castShadow = true; child.receiveShadow = true; } });
+             const newId = nextPlacedObjectId++;
+             clonedMesh.userData = { placedId: newId, sourceName: sourceItem.name };
+             placedObjectsGroup.add(clonedMesh);
+             placedObjects.push({ id: newId, mesh: clonedMesh, sourceName: sourceItem.name });
+             // console.log(`Placed object ${newId} (from ${sourceItem.name}) at`, position);
+         }
+
+        function selectPlacedObject(objectToSelect) {
+            if (objectToSelect && activeHotbarIndex !== -1) { setActiveHotbarItem(-1); }
+            if (selectedObject === objectToSelect) return;
+            selectedObject = objectToSelect;
+            if (selectedObject) {
+                selectionBoxHelper.setFromObject(selectedObject); selectionBoxHelper.visible = true;
+                objectPropertiesContainer.style.display = 'block';
+                projectsPopup.style.display = 'none'; projectsBtn.classList.remove('active-tool');
+                // console.log("Selected object:", selectedObject.userData);
+            } else {
+                selectionBoxHelper.visible = false; objectPropertiesContainer.style.display = 'none';
+                // console.log("Deselected object");
+            }
+            updateObjectPropertiesUI();
+        }
+
+         function deleteSelectedObject() {
+             if (!selectedObject) return;
+             const objectId = selectedObject.userData.placedId; const sourceName = selectedObject.userData.sourceName;
+             placedObjectsGroup.remove(selectedObject);
+             selectedObject.traverse(child => {
+                 if (child.isMesh) {
+                     child.geometry?.dispose();
+                     if (child.material) {
+                          if (Array.isArray(child.material)) child.material.forEach(mat => mat.dispose());
+                          else child.material.dispose();
+                     }
+                 }
+             });
+             placedObjects = placedObjects.filter(obj => obj.id !== objectId);
+             selectPlacedObject(null);
+             showStatusMessage(`Deleted object (from ${sourceName}).`);
+         }
+
+         function updateObjectPropertiesUI() {
+             if (selectedObject && objectPropertiesContainer.style.display === 'block') {
+                 const ud = selectedObject.userData; const pos = selectedObject.position;
+                 const rot = selectedObject.rotation; const scale = selectedObject.scale;
+                 objectPropertiesDiv.innerHTML = `ID: ${ud.placedId ?? 'N/A'}<br> Source: ${ud.sourceName ?? 'Unknown'}<br> Pos: ${pos.x.toFixed(2)}, ${pos.y.toFixed(2)}, ${pos.z.toFixed(2)}<br> Rot(Y): ${(rot.y * 180 / Math.PI).toFixed(1)}°<br> Scale: ${scale.x.toFixed(2)}, ${scale.y.toFixed(2)}, ${scale.z.toFixed(2)}`;
+             } else { objectPropertiesDiv.innerHTML = 'Select an object.'; }
+         }
+
+         function clearScene() {
+             while (placedObjectsGroup.children.length > 0) {
+                 const obj = placedObjectsGroup.children[0];
+                  obj.traverse(child => { if (child.isMesh) { child.geometry?.dispose(); if (child.material) { if (Array.isArray(child.material)) child.material.forEach(mat => mat.dispose()); else child.material.dispose(); } } });
+                 placedObjectsGroup.remove(obj);
+             }
+             placedObjects = []; nextPlacedObjectId = 0; selectPlacedObject(null);
+             console.log("Scene cleared.");
+         }
+
+        // --- Import/Export Functions --- (exportSceneOBJ remains the same)
+        function exportSceneOBJ() { if (placedObjectsGroup.children.length === 0) { showStatusMessage("Scene is empty. Nothing to export.", 2000); return; } console.log("Starting OBJ export..."); let objData = "# Mesh Placer Scene Export\n"; objData += `# Generated: ${new Date().toISOString()}\n`; objData += `# Objects: ${placedObjectsGroup.children.length}\n`; let globalVertexOffset = 1; let globalNormalOffset = 1; let globalUVOffset = 1; placedObjectsGroup.children.forEach((placedObject, index) => { const sourceName = placedObject.userData.sourceName || `object_${index}`; const placedId = placedObject.userData.placedId !== undefined ? placedObject.userData.placedId : index; objData += `\no ${sourceName}_${placedId}\n`; placedObject.updateMatrixWorld(true); placedObject.traverse(child => { if (child.isMesh) { const mesh = child; const geometry = mesh.geometry; if (geometry && geometry.isBufferGeometry) { const positionAttribute = geometry.getAttribute('position'); const normalAttribute = geometry.getAttribute('normal'); const uvAttribute = geometry.getAttribute('uv'); let vertexCount = 0; if (positionAttribute) { const vertices = []; const normals = []; const uvs = []; const tempVec3 = new THREE.Vector3(); const tempVec2 = new THREE.Vector2(); const normalMatrix = new THREE.Matrix3().getNormalMatrix(mesh.matrixWorld); vertexCount = positionAttribute.count; for (let i = 0; i < positionAttribute.count; i++) { tempVec3.fromBufferAttribute(positionAttribute, i); tempVec3.applyMatrix4(mesh.matrixWorld); vertices.push(`v ${tempVec3.x.toFixed(4)} ${tempVec3.y.toFixed(4)} ${tempVec3.z.toFixed(4)}`); if (normalAttribute) { tempVec3.fromBufferAttribute(normalAttribute, i); tempVec3.applyMatrix3(normalMatrix).normalize(); normals.push(`vn ${tempVec3.x.toFixed(4)} ${tempVec3.y.toFixed(4)} ${tempVec3.z.toFixed(4)}`); } if (uvAttribute) { tempVec2.fromBufferAttribute(uvAttribute, i); uvs.push(`vt ${tempVec2.x.toFixed(4)} ${tempVec2.y.toFixed(4)}`); } } objData += vertices.join('\n') + '\n'; if (normals.length > 0) objData += normals.join('\n') + '\n'; if (uvs.length > 0) objData += uvs.join('\n') + '\n'; const indexAttribute = geometry.index; if (indexAttribute) { for (let i = 0; i < indexAttribute.count; i += 3) { let faceIndices = [indexAttribute.getX(i), indexAttribute.getX(i+1), indexAttribute.getX(i+2)]; let faceStrings = faceIndices.map(idx => { let parts = [idx + globalVertexOffset]; if (uvs.length > 0) parts.push(idx + globalUVOffset); if (normals.length > 0) parts.push(idx + globalNormalOffset); return parts.join('/'); }); objData += `f ${faceStrings.join(' ')}\n`; } } else { for (let i = 0; i < positionAttribute.count; i += 3) { let faceIndices = [i, i+1, i+2]; let faceStrings = faceIndices.map(idx => { let parts = [idx + globalVertexOffset]; if (uvs.length > 0) parts.push(idx + globalUVOffset); if (normals.length > 0) parts.push(idx + globalNormalOffset); return parts.join('/'); }); objData += `f ${faceStrings.join(' ')}\n`; } } } globalVertexOffset += vertexCount; if (normalAttribute) globalNormalOffset += vertexCount; if (uvAttribute) globalUVOffset += vertexCount; } } }); }); try { const blob = new Blob([objData], { type: 'text/plain;charset=utf-8' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${currentProjectName || 'scene_export'}.obj`; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url); showStatusMessage("Exported Scene as OBJ."); console.log("Finished OBJ export."); } catch (error) { console.error("Error exporting OBJ:", error); showStatusMessage("Error exporting scene. Check console.", 3000); } }
+
+        // --- Project Management Functions ---
+        function getProjects() { try { const data = localStorage.getItem(PROJECTS_STORAGE_KEY); return data ? JSON.parse(data) : {}; } catch (e) { console.error("Error reading projects from localStorage:", e); return {}; } }
+        function saveProjects(projects) { try { localStorage.setItem(PROJECTS_STORAGE_KEY, JSON.stringify(projects)); } catch (e) { console.error("Error saving projects to localStorage:", e); showStatusMessage("Failed to save projects!", 3000); } }
+        function generateDefaultProjectName() { const projects = getProjects(); let i = 1; let name; do { name = `Scene ${i}`; i++; } while (projects[name]); return name; }
+        function updateCurrentProjectNameDisplay() { const display = currentProjectName || "Untitled Scene"; currentProjectNameDiv.textContent = display; projectNameInput.value = currentProjectName || ""; }
+        function saveHotbarToLocalStorage() { try { const hotbarNames = hotbarItems.map(item => item.name); localStorage.setItem(HOTBAR_STORAGE_KEY, JSON.stringify(hotbarNames)); } catch (e) { console.error("Error saving hotbar state:", e); } }
+        function loadHotbarFromLocalStorage() { try { const savedNames = localStorage.getItem(HOTBAR_STORAGE_KEY); if (savedNames) { const names = JSON.parse(savedNames); if (names && names.length > 0) { console.log("Previously saved hotbar items (names):", names.join(', ')); showStatusMessage(`Reminder: Re-import previously used meshes (${names.length}) to hotbar.`, 5000); } } } catch (e) { console.error("Error loading hotbar state:", e); } }
+        function saveProject(projectName, projectData) { if (!projectName) { console.error("Project name cannot be empty."); showStatusMessage("Project name cannot be empty!", 3000); return false; } const projects = getProjects(); projects[projectName] = projectData; saveProjects(projects); return true; }
+        function handleSaveAs() { let name = projectNameInput.value.trim(); if (!name) { name = generateDefaultProjectName(); projectNameInput.value = name; } const placedObjectsData = placedObjects.map(objInfo => ({ sourceName: objInfo.sourceName, position: objInfo.mesh.position.toArray(), rotation: [objInfo.mesh.rotation.x, objInfo.mesh.rotation.y, objInfo.mesh.rotation.z], scale: objInfo.mesh.scale.toArray() })); const hotbarData = hotbarItems.map(item => item.name); const currentData = { projectName: name, hotbarItemNames: hotbarData, placedObjects: placedObjectsData, nextPlacedObjectId: nextPlacedObjectId, lastSaved: new Date().toISOString() }; if (saveProject(name, currentData)) { currentProjectName = name; updateCurrentProjectNameDisplay(); showStatusMessage(`Project '${name}' saved!`); loadProjectsList(); toggleProjectsPopup(false); } }
+        function loadSpecificProject(projectName) { const projects = getProjects(); if (!projects[projectName]) { console.error(`Project '${projectName}' not found.`); showStatusMessage(`Error: Project '${projectName}' not found.`, 3000); return; } clearScene(); const projectData = projects[projectName]; currentProjectName = projectName; nextPlacedObjectId = projectData.nextPlacedObjectId || 0; const requiredMeshes = projectData.hotbarItemNames || []; let meshesAvailable = true; if(requiredMeshes.length > 0) { showStatusMessage(`Loading project '${projectName}'. Requires meshes: ${requiredMeshes.join(', ')}`, 4000); } (projectData.placedObjects || []).forEach(objData => { const sourceItem = hotbarItems.find(item => item.name === objData.sourceName); if (sourceItem) { const clonedMesh = sourceItem.meshProto.clone(); if (objData.position) clonedMesh.position.fromArray(objData.position); if (objData.rotation) clonedMesh.rotation.set(objData.rotation[0], objData.rotation[1], objData.rotation[2], 'XYZ'); if (objData.scale) clonedMesh.scale.fromArray(objData.scale); clonedMesh.traverse((child) => { if (child.isMesh) { child.castShadow = true; child.receiveShadow = true; } }); const newId = nextPlacedObjectId++; clonedMesh.userData = { placedId: newId, sourceName: sourceItem.name }; placedObjectsGroup.add(clonedMesh); placedObjects.push({ id: newId, mesh: clonedMesh, sourceName: sourceItem.name }); } else { console.warn(`Could not place object: Source mesh "${objData.sourceName}" not found in current hotbar.`); meshesAvailable = false; } }); nextPlacedObjectId = placedObjects.length > 0 ? Math.max(...placedObjects.map(p => p.id)) + 1 : 0; updateCurrentProjectNameDisplay(); selectPlacedObject(null); toggleProjectsPopup(false); if (!meshesAvailable) { showStatusMessage(`Project '${projectName}' loaded, but some meshes were missing from hotbar. Re-import required meshes.`, 5000); } else { showStatusMessage(`Project '${projectName}' loaded.`); } }
+        function renameProject(oldName) { const projects = getProjects(); if (!projects[oldName]) return; const newName = prompt(`Enter new name for project "${oldName}":`, oldName); if (newName && newName.trim() && newName !== oldName) { const cleanNewName = newName.trim(); if (projects[cleanNewName]) { alert(`Error: Project name "${cleanNewName}" already exists.`); return; } if (projects[oldName].projectName) { projects[oldName].projectName = cleanNewName; } projects[cleanNewName] = projects[oldName]; delete projects[oldName]; saveProjects(projects); if (currentProjectName === oldName) { currentProjectName = cleanNewName; updateCurrentProjectNameDisplay(); } loadProjectsList(); showStatusMessage(`Project renamed to '${cleanNewName}'.`); } }
+        function deleteProject(projectName) { if (!confirm(`Are you sure you want to delete project "${projectName}"? This cannot be undone.`)) return; const projects = getProjects(); if (projects[projectName]) { delete projects[projectName]; saveProjects(projects); if (currentProjectName === projectName) { clearScene(); currentProjectName = null; updateCurrentProjectNameDisplay(); } loadProjectsList(); showStatusMessage(`Project '${projectName}' deleted.`); } }
+        function exportProjectData(projectName) { const projects = getProjects(); if (projects[projectName]) { try { const jsonString = JSON.stringify(projects[projectName], null, 2); const blob = new Blob([jsonString], { type: 'application/json;charset=utf-8' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${projectName}.json`; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url); } catch (e) { console.error("Error exporting project data:", e); showStatusMessage("Error exporting project data.", 3000); } } }
+        function handleImportProject(event) { const file = event.target.files[0]; if (!file) return; const reader = new FileReader(); reader.onload = (e) => { try { const importedData = JSON.parse(e.target.result); if (!importedData || typeof importedData !== 'object' || !importedData.placedObjects) { throw new Error("Invalid project file format. Missing required data."); } const suggestedName = importedData.projectName || file.name.replace(/\.[^/.]+$/, ""); const projectName = prompt(`Enter name for imported project (or leave blank to use "${suggestedName}"):`, suggestedName) || suggestedName || generateDefaultProjectName(); const finalName = projectName.trim(); if (saveProject(finalName, importedData)) { showStatusMessage(`Project '${finalName}' imported successfully! Load it from the list.`, 4000); loadProjectsList(); toggleProjectsPopup(true); } } catch (error) { console.error("Error importing project:", error); alert(`Error importing project: ${error.message}`); } finally { importProjectInput.value = ''; } }; reader.onerror = () => { console.error("Error reading project file."); alert("Error reading project file."); importProjectInput.value = ''; }; reader.readAsText(file); }
+        function loadProjectsList() { const projects = getProjects(); projectListUl.innerHTML = ''; const projectNames = Object.keys(projects).sort(); if (projectNames.length === 0) { projectListUl.innerHTML = '<li class="text-center text-gray-500 text-xs italic">No projects saved</li>'; return; } projectNames.forEach(name => { const li = document.createElement('li'); const nameSpan = document.createElement('span'); nameSpan.textContent = name; nameSpan.className = 'truncate ... cursor-pointer hover:text-blue-600'; nameSpan.title = `Load "${name}"`; nameSpan.onclick = () => loadSpecificProject(name); li.appendChild(nameSpan); const buttonsDiv = document.createElement('div'); buttonsDiv.className = 'flex-shrink-0 space-x-1'; const loadBtnLi = document.createElement('button'); loadBtnLi.textContent = 'Load'; loadBtnLi.className = 'button-std button-sm'; loadBtnLi.title = `Load "${name}"`; loadBtnLi.onclick = () => loadSpecificProject(name); const renameBtnLi = document.createElement('button'); renameBtnLi.textContent = 'Rename'; renameBtnLi.className = 'button-std button-sm'; renameBtnLi.title = `Rename "${name}"`; renameBtnLi.onclick = () => renameProject(name); const exportBtnLi = document.createElement('button'); exportBtnLi.textContent = 'Export JSON'; exportBtnLi.className = 'button-std button-sm'; exportBtnLi.title = `Export project data for "${name}" (.json)`; exportBtnLi.onclick = () => exportProjectData(name); const deleteBtnLi = document.createElement('button'); deleteBtnLi.textContent = 'Delete'; deleteBtnLi.className = 'button-std button-sm button-danger'; deleteBtnLi.title = `Delete "${name}"`; deleteBtnLi.onclick = () => deleteProject(name); buttonsDiv.appendChild(loadBtnLi); buttonsDiv.appendChild(renameBtnLi); buttonsDiv.appendChild(exportBtnLi); buttonsDiv.appendChild(deleteBtnLi); li.appendChild(buttonsDiv); projectListUl.appendChild(li); }); }
+        function toggleProjectsPopup(forceOpen = null) { const isOpen = projectsPopup.style.display === 'block'; const shouldOpen = forceOpen !== null ? forceOpen : !isOpen; if (shouldOpen) { loadProjectsList(); projectsPopup.style.display = 'block'; projectsBtn.classList.add('active-tool'); objectPropertiesContainer.style.display = 'none'; if (selectedObject) selectPlacedObject(null); } else { projectsPopup.style.display = 'none'; projectsBtn.classList.remove('active-tool'); } }
+
+        // --- Utility Functions ---
+        let statusTimeout; function showStatusMessage(message, duration = 2000) { statusMessageDiv.textContent = message; statusMessageDiv.classList.add('visible'); clearTimeout(statusTimeout); statusTimeout = setTimeout(() => { statusMessageDiv.classList.remove('visible'); }, duration); }
+
+        // --- Start the application ---
+        init();
+
+    </script>
+
+</body>
+</html>

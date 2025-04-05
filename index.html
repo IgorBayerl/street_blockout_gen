@@ -85,17 +85,7 @@
         .split { display: flex; flex-direction: row; }
 
         /* Brush Cursor Style */
-        #brush-cursor {
-            /* *** UPDATED: Use fixed positioning *** */
-            position: fixed;
-            border: 1px solid rgba(0, 0, 0, 0.5);
-            background-color: rgba(100, 100, 100, 0.1);
-            border-radius: 50%;
-            pointer-events: none;
-            display: none;
-            z-index: 99;
-            transform: translate(-50%, -50%); /* Center on cursor */
-        }
+        #brush-cursor { position: fixed; border: 1px solid rgba(0, 0, 0, 0.5); background-color: rgba(100, 100, 100, 0.1); border-radius: 50%; pointer-events: none; display: none; z-index: 99; transform: translate(-50%, -50%); }
 
     </style>
 </head>
@@ -112,12 +102,13 @@
         <button id="bg-settings-btn" title="Background Settings" class="sidebar-btn"> <img src="https://cdn.jsdelivr.net/npm/lucide-static@latest/icons/image.svg" alt="Background Settings"> </button>
         <hr class="w-full border-gray-500 my-1">
         <button id="generate-terrain-btn" title="Generate/Update Terrain (T)" class="sidebar-btn"> <img src="https://cdn.jsdelivr.net/npm/lucide-static@latest/icons/mountain.svg" alt="Generate Terrain"> </button>
+        <button id="clear-terrain-btn" title="Clear Terrain" class="sidebar-btn"> <img src="https://cdn.jsdelivr.net/npm/lucide-static@latest/icons/eraser.svg" alt="Clear Terrain"> </button>
          <hr class="w-full border-gray-500 my-1">
         <button id="projects-btn" title="Manage Projects" class="sidebar-btn"> <img src="https://cdn.jsdelivr.net/npm/lucide-static@latest/icons/folder-kanban.svg" alt="Manage Projects"> </button>
         <button id="export-obj-btn" title="Export Track Mesh (E)" class="sidebar-btn"> <img src="https://cdn.jsdelivr.net/npm/lucide-static@latest/icons/download.svg" alt="Export OBJ"> </button>
         <hr class="w-full border-gray-500 my-1">
         <button id="info-btn" title="Show Instructions" class="sidebar-btn mt-auto"> <img src="https://cdn.jsdelivr.net/npm/lucide-static@latest/icons/info.svg" alt="Info"> </button>
-         <div id="instructions-popup" class="tooltip-popup"> <h3 class="font-semibold mb-1 text-base">Instructions & Shortcuts:</h3> <ul class="list-disc text-sm space-y-1"> <li>Select (Esc), Brush Select (B), Add Node (A), Connect Nodes (C), Delete (Del).</li> <li>Focus Selection (F).</li> <li>Select Mode: Shift+Click to toggle selection.</li> <li>Brush Mode: Drag to select, Shift+Drag to deselect.</li> <li>Brush Mode: Shift+Wheel to resize brush.</li> <li>Use Gizmo (W) in 3D to move selected node(s).</li> <li>Edit Height/Width for selected node(s).</li> <li>Generate/Update Terrain (T).</li> <li>Save/Load/Manage projects via Folder Icon panel.</li> <li>Export Track OBJ (E).</li> <li>Pan 2D/3D: Right Mouse Drag.</li> <li>Zoom 2D/3D: Mouse Wheel.</li> <li>Orbit 3D: Middle Mouse Drag.</li> <li>Gizmo: Translate (W), Space (Q), Size (+/-).</li> </ul> </div>
+         <div id="instructions-popup" class="tooltip-popup"> <h3 class="font-semibold mb-1 text-base">Instructions & Shortcuts:</h3> <ul class="list-disc text-sm space-y-1"> <li>Select (Esc), Brush Select (B), Add Node (A), Connect Nodes (C), Delete (Del).</li> <li>Focus Selection (F).</li> <li>Select Mode: Shift+Click to toggle selection.</li> <li>Brush Mode: Drag to select, Shift+Drag to deselect.</li> <li>Brush Mode: Shift+Wheel to resize brush.</li> <li>Use Gizmo (W) in 3D to move selected node(s).</li> <li>Edit Height/Width for selected node(s).</li> <li>Generate/Update Terrain (T). Clear Terrain (Eraser Icon).</li> <li>Save/Load/Manage projects via Folder Icon panel.</li> <li>Export Track OBJ (E).</li> <li>Pan 2D/3D: Right Mouse Drag.</li> <li>Zoom 2D/3D: Mouse Wheel.</li> <li>Orbit 3D: Middle Mouse Drag.</li> <li>Gizmo: Translate (W), Space (Q), Size (+/-).</li> </ul> </div>
          <input type="file" id="bg-file-input" accept="image/*" style="display: none;">
          <input type="file" id="import-project-input" accept=".json,application/json" style="display: none;">
     </div>
@@ -208,7 +199,7 @@
         let backgroundImageOpacity = 1.0;
         let backgroundImageScale = 1.0;
         let isPanning = false; let lastPanX, lastPanY;
-        let isBrushSelecting = false; let lastMousePos = {x:0, y:0, screenX: 0, screenY: 0, clientX: 0, clientY: 0}; // Added clientX/Y
+        let isBrushSelecting = false; let lastMousePos = {x:0, y:0, screenX: 0, screenY: 0, clientX: 0, clientY: 0};
         let brushSelectRadiusWorld = 15;
         let justFinishedDraggingGizmo = false;
         let isCameraAnimating = false; let cameraAnimationStartTime = 0; const cameraAnimationStartPos = new THREE.Vector3(); const cameraAnimationEndPos = new THREE.Vector3(); const cameraAnimationStartTarget = new THREE.Vector3(); const cameraAnimationEndTarget = new THREE.Vector3();
@@ -229,6 +220,7 @@
         const addNodeBtn = document.getElementById('add-node-btn'); const connectNodesBtn = document.getElementById('connect-nodes-btn'); const deleteBtn = document.getElementById('delete-btn');
         const focusSelectionBtn = document.getElementById('focus-selection-btn');
         const generateTerrainBtn = document.getElementById('generate-terrain-btn');
+        const clearTerrainBtn = document.getElementById('clear-terrain-btn'); // Clear Terrain Button
         const projectsBtn = document.getElementById('projects-btn');
         const exportObjBtn = document.getElementById('export-obj-btn');
         const nodePropertiesContainer = document.getElementById('node-properties-container'); const nodePropertiesDiv = document.getElementById('node-properties'); const nodeHeightInput = document.getElementById('node-height');
@@ -309,7 +301,7 @@
             // --- Draw Screen-Space Elements (AFTER restore) ---
 
             // Draw Brush Cursor
-            if (currentMode === 'brushSelect' && lastMousePos.clientX !== undefined) { // Use clientX for positioning
+            if (currentMode === 'brushSelect' && lastMousePos.clientX !== undefined) {
                 const brushRadiusScreen = brushSelectRadiusWorld * zoom;
                 // Position using clientX/Y relative to viewport for fixed positioning
                 brushCursorDiv.style.left = `${lastMousePos.clientX}px`;
@@ -327,17 +319,14 @@
         // --- Interaction Functions ---
          function getMousePos(evt, targetCanvas = canvas) {
              const rect = targetCanvas.getBoundingClientRect();
-             // Use offsetX/offsetY - relative to padding edge
-             const screenX = evt.offsetX;
+             const screenX = evt.offsetX; // Use offsetX/Y relative to padding edge
              const screenY = evt.offsetY;
 
              if (targetCanvas === canvas) {
                  const worldX = (screenX - panX) / zoom;
                  const worldY = (screenY - panY) / zoom;
-                 // Also return clientX/Y for fixed positioning needs
                  return { x: worldX, y: worldY, screenX, screenY, clientX: evt.clientX, clientY: evt.clientY };
              } else {
-                  // For 3D view, only screenX/Y relative to its own rect are needed for raycasting
                   return { screenX, screenY, clientX: evt.clientX, clientY: evt.clientY };
              }
          }
